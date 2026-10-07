@@ -5,937 +5,950 @@ const seedElement = document.getElementById("seed");
 const compositionElement = document.getElementById("composition");
 const paletteElement = document.getElementById("palette");
 const circlesElement = document.getElementById("circles");
-const TAU = Math.PI * 2;
 const WIDTH = 1200;
 const HEIGHT = 900;
+const TAU = Math.PI * 2;
 let currentArtwork = null;
 function randomSeed() {
     return Math.floor(Math.random() * 2147483647);
 }
-function createRandom(seed) {
-    let value = seed >>> 0;
+function rng(seed) {
+    let s = seed >>> 0;
     return function () {
-        value += 0x6D2B79F5;
-        let t = value;
-        t = Math.imul(t ^ (t >>> 15), t | 1);
-        t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+        s += 0x6D2B79F5;
+        let t = s;
+        t = Math.imul(t ^ t >>> 15, t | 1);
+        t ^= t + Math.imul(t ^ t >>> 7, t | 61);
+        return ((t ^ t >>> 14) >>> 0) / 4294967296;
     };
 }
-function randomRange(random, min, max) {
-    return min + random() * (max - min);
+function range(r, a, b) {
+    return a + r() * (b - a);
 }
-function randomInt(random, min, max) {
-    return Math.floor(randomRange(random, min, max + 1));
+function integer(r, a, b) {
+    return Math.floor(range(r, a, b + 1));
 }
-function chance(random, amount) {
-    return random() < amount;
+function chance(r, n) {
+    return r() < n;
 }
-function clamp(value, min, max) {
-    return Math.max(min, Math.min(max, value));
+function clamp(v, a, b) {
+    return Math.max(a, Math.min(b, v));
 }
 function lerp(a, b, t) {
     return a + (b - a) * t;
 }
-function hsvToRgb(h, s, v) {
+function hsv(h, s, v) {
     h = ((h % 360) + 360) % 360;
     const c = v * s;
     const x = c * (1 - Math.abs((h / 60) % 2 - 1));
     const m = v - c;
-    let r = 0;
-    let g = 0;
-    let b = 0;
+    let rr = 0;
+    let gg = 0;
+    let bb = 0;
     if (h < 60) {
-        r = c;
-        g = x;
+        rr = c;
+        gg = x;
     } else if (h < 120) {
-        r = x;
-        g = c;
+        rr = x;
+        gg = c;
     } else if (h < 180) {
-        g = c;
-        b = x;
+        gg = c;
+        bb = x;
     } else if (h < 240) {
-        g = x;
-        b = c;
+        gg = x;
+        bb = c;
     } else if (h < 300) {
-        r = x;
-        b = c;
+        rr = x;
+        bb = c;
     } else {
-        r = c;
-        b = x;
+        rr = c;
+        bb = x;
     }
     return {
-        r: Math.round((r + m) * 255),
-        g: Math.round((g + m) * 255),
-        b: Math.round((b + m) * 255)
+        r: Math.round((rr + m) * 255),
+        g: Math.round((gg + m) * 255),
+        b: Math.round((bb + m) * 255)
     };
 }
-function mixColor(a, b, amount) {
+function mix(a, b, t) {
     return {
-        r: Math.round(lerp(a.r, b.r, amount)),
-        g: Math.round(lerp(a.g, b.g, amount)),
-        b: Math.round(lerp(a.b, b.b, amount))
+        r: Math.round(lerp(a.r, b.r, t)),
+        g: Math.round(lerp(a.g, b.g, t)),
+        b: Math.round(lerp(a.b, b.b, t))
     };
 }
-function multiplyColor(color, amount) {
+function scaleColor(c, n) {
     return {
-        r: clamp(Math.round(color.r * amount), 0, 255),
-        g: clamp(Math.round(color.g * amount), 0, 255),
-        b: clamp(Math.round(color.b * amount), 0, 255)
+        r: clamp(Math.round(c.r * n), 0, 255),
+        g: clamp(Math.round(c.g * n), 0, 255),
+        b: clamp(Math.round(c.b * n), 0, 255)
     };
 }
-function rgbString(color, alpha) {
-    return `rgba(${color.r},${color.g},${color.b},${alpha})`;
+function rgba(c, a) {
+    return `rgba(${c.r},${c.g},${c.b},${a})`;
 }
-function makePalette(random) {
-    const baseHue = randomRange(random, 0, 360);
-    const modes = [
-        "ANALOGOUS",
-        "COMPLEMENTARY",
-        "TRIADIC",
-        "SPLIT-COMPLEMENTARY",
-        "TETRADIC",
-        "MONOCHROMATIC",
-        "CHAOTIC HARMONY"
+function makePalette(r) {
+    const base = range(r, 0, 360);
+    const systems = [
+        {
+            name: "DREAM ANALOGUE",
+            hues: [base - 45, base - 18, base, base + 20, base + 43]
+        },
+        {
+            name: "DREAM COMPLEMENT",
+            hues: [base, base + 18, base - 18, base + 180, base + 198]
+        },
+        {
+            name: "TRIADIC DREAM",
+            hues: [base, base + 120, base + 240, base + 18, base + 198]
+        },
+        {
+            name: "NIGHT TETRAD",
+            hues: [base, base + 75, base + 180, base + 255, base + 35]
+        },
+        {
+            name: "PASTEL VOID",
+            hues: [base, base + 30, base + 70, base + 180, base + 210]
+        },
+        {
+            name: "ACID DREAM",
+            hues: [base, base + 55, base + 125, base + 185, base + 275]
+        },
+        {
+            name: "UNSTABLE HARMONY",
+            hues: [
+                base,
+                base + range(r, 20, 90),
+                base + range(r, 100, 180),
+                base + range(r, 190, 280),
+                base + range(r, 280, 350)
+            ]
+        }
     ];
-    const mode = modes[randomInt(random, 0, modes.length - 1)];
-    let hues;
-    if (mode === "ANALOGOUS") {
-        hues = [
-            baseHue - 38,
-            baseHue - 18,
-            baseHue,
-            baseHue + 18,
-            baseHue + 38
-        ];
-    } else if (mode === "COMPLEMENTARY") {
-        hues = [
-            baseHue,
-            baseHue + 12,
-            baseHue - 12,
-            baseHue + 180,
-            baseHue + 192
-        ];
-    } else if (mode === "TRIADIC") {
-        hues = [
-            baseHue,
-            baseHue + 120,
-            baseHue + 240,
-            baseHue + 120,
-            baseHue
-        ];
-    } else if (mode === "SPLIT-COMPLEMENTARY") {
-        hues = [
-            baseHue,
-            baseHue + 150,
-            baseHue + 210,
-            baseHue + 25,
-            baseHue - 25
-        ];
-    } else if (mode === "TETRADIC") {
-        hues = [
-            baseHue,
-            baseHue + 90,
-            baseHue + 180,
-            baseHue + 270,
-            baseHue + 45
-        ];
-    } else if (mode === "MONOCHROMATIC") {
-        hues = [
-            baseHue,
-            baseHue,
-            baseHue,
-            baseHue,
-            baseHue
-        ];
-    } else {
-        hues = [
-            baseHue,
-            baseHue + randomRange(random, 25, 80),
-            baseHue + randomRange(random, 100, 180),
-            baseHue + randomRange(random, 190, 270),
-            baseHue + randomRange(random, 280, 350)
-        ];
-    }
-    const colors = hues.map((hue, index) => {
-        const saturation = index === 0
-            ? randomRange(random, 0.28, 0.55)
-            : randomRange(random, 0.35, 0.95);
-        const value = index === 0
-            ? randomRange(random, 0.08, 0.24)
-            : randomRange(random, 0.35, 1);
-        return hsvToRgb(hue, saturation, value);
+    const system = systems[integer(r, 0, systems.length - 1)];
+    const colors = system.hues.map((h, i) => {
+        let saturation;
+        let value;
+        if (system.name === "PASTEL VOID") {
+            saturation = range(r, 0.2, 0.55);
+            value = range(r, 0.65, 1);
+        } else if (system.name === "ACID DREAM") {
+            saturation = range(r, 0.65, 1);
+            value = range(r, 0.45, 1);
+        } else {
+            saturation = i === 0
+                ? range(r, 0.3, 0.65)
+                : range(r, 0.35, 0.95);
+            value = i === 0
+                ? range(r, 0.07, 0.2)
+                : range(r, 0.35, 1);
+        }
+        return hsv(h, saturation, value);
     });
-    const background = chance(random, 0.72)
-        ? mixColor(colors[0], { r: 0, g: 0, b: 0 }, randomRange(random, 0.35, 0.8))
-        : hsvToRgb(randomRange(random, 0, 360), 0.1, 0.06);
     return {
-        name: mode,
+        name: system.name,
         colors,
-        background
+        background: scaleColor(colors[0], range(r, 0.25, 0.55))
     };
 }
-function createComposition(random) {
-    const modes = [
-        "RULE OF THIRDS",
-        "GOLDEN SPIRAL",
-        "DIAGONAL TENSION",
-        "RADIAL BALANCE",
-        "ASYMMETRICAL BALANCE",
-        "CENTRAL GRAVITY",
-        "EDGE DOMINANCE",
+function makeComposition(r) {
+    const names = [
+        "DREAM LOGIC",
+        "ASYMMETRICAL DREAM",
+        "IMPOSSIBLE PERSPECTIVE",
+        "VISUAL TENSION",
         "NEGATIVE SPACE",
-        "CONTROLLED CHAOS"
+        "HYPNOTIC BALANCE",
+        "CONTROLLED CHAOS",
+        "UNCANNY SYMMETRY",
+        "LIMINAL COMPOSITION"
     ];
-    const mode = modes[randomInt(random, 0, modes.length - 1)];
-    const thirds = [
-        [WIDTH * 0.333, HEIGHT * 0.333],
-        [WIDTH * 0.666, HEIGHT * 0.333],
-        [WIDTH * 0.333, HEIGHT * 0.666],
-        [WIDTH * 0.666, HEIGHT * 0.666]
-    ];
-    let focal;
-    if (mode === "CENTRAL GRAVITY") {
-        focal = {
-            x: WIDTH * 0.5 + randomRange(random, -80, 80),
-            y: HEIGHT * 0.5 + randomRange(random, -80, 80)
-        };
-    } else if (mode === "EDGE DOMINANCE") {
-        const side = randomInt(random, 0, 3);
-        focal = side === 0
-            ? { x: randomRange(random, 70, 220), y: randomRange(random, 100, 800) }
-            : side === 1
-                ? { x: randomRange(random, 980, 1130), y: randomRange(random, 100, 800) }
-                : side === 2
-                    ? { x: randomRange(random, 100, 1100), y: randomRange(random, 60, 190) }
-                    : { x: randomRange(random, 100, 1100), y: randomRange(random, 710, 840) };
-    } else {
-        const point = thirds[randomInt(random, 0, thirds.length - 1)];
-        focal = {
-            x: point[0] + randomRange(random, -150, 150),
-            y: point[1] + randomRange(random, -130, 130)
-        };
-    }
     return {
-        mode,
-        focalX: clamp(focal.x, 80, WIDTH - 80),
-        focalY: clamp(focal.y, 80, HEIGHT - 80),
-        symmetry: randomRange(random, 0, 0.35),
-        tension: randomRange(random, 0.2, 1),
-        negativeSpace: randomRange(random, 0.08, 0.55),
-        rhythm: randomRange(random, 0.25, 1),
-        scaleVariation: randomRange(random, 0.6, 1.8)
+        name: names[integer(r, 0, names.length - 1)],
+        focalX: range(r, 120, WIDTH - 120),
+        focalY: range(r, 100, HEIGHT - 100),
+        chaos: range(r, 0.35, 1),
+        emptiness: range(r, 0.08, 0.48),
+        symmetry: range(r, 0, 0.8),
+        density: range(r, 0.75, 1),
+        curvature: range(r, 0.2, 1),
+        scale: range(r, 0.65, 1.7)
     };
 }
-function makeCircle(x, y, radius, color, alpha, layer) {
-    return {
+function add(circles, x, y, radius, color, alpha, layer) {
+    if (
+        x < -radius ||
+        x > WIDTH + radius ||
+        y < -radius ||
+        y > HEIGHT + radius
+    ) return;
+    circles.push({
         x,
         y,
         radius,
         color,
         alpha,
         layer
-    };
+    });
 }
-function addCircle(circles, x, y, radius, color, alpha, layer) {
-    circles.push(makeCircle(x, y, radius, color, alpha, layer));
+function draw(circles) {
+    circles.sort((a, b) => a.layer - b.layer);
+    for (const c of circles) {
+        ctx.beginPath();
+        ctx.arc(c.x, c.y, c.radius, 0, TAU);
+        ctx.fillStyle = rgba(c.color, c.alpha);
+        ctx.fill();
+    }
 }
-function distance(a, b) {
-    const dx = a.x - b.x;
-    const dy = a.y - b.y;
-    return Math.sqrt(dx * dx + dy * dy);
-}
-function paintGradient(random, palette, circles) {
-    const spacing = 5;
+function background(r, palette, circles) {
+    const spacing = 3.5;
     for (let y = 0; y < HEIGHT; y += spacing) {
-        const progress = y / HEIGHT;
-        const upper = palette.background;
-        const lower = mixColor(
+        const t = y / HEIGHT;
+        const base = mix(
             palette.background,
-            palette.colors[0],
-            0.18
+            palette.colors[1],
+            t * 0.3
         );
-        const base = mixColor(upper, lower, progress);
         for (let x = 0; x < WIDTH; x += spacing) {
-            const variation = randomRange(random, 0.82, 1.18);
-            addCircle(
+            const variation = range(r, 0.86, 1.12);
+            add(
                 circles,
-                x + randomRange(random, -3, 3),
-                y + randomRange(random, -3, 3),
-                randomRange(random, 2.5, 5.5),
-                multiplyColor(base, variation),
-                randomRange(random, 0.12, 0.24),
+                x + range(r, -2, 2),
+                y + range(r, -2, 2),
+                range(r, 1.7, 4),
+                scaleColor(base, variation),
+                range(r, 0.2, 0.42),
                 0
             );
         }
     }
 }
-function paintAtmosphere(random, palette, circles) {
-    const count = 14000;
+function denseField(r, palette, circles, cx, cy, width, height, colorIndex, density, layer) {
+    const count = Math.floor(width * height / 22 * density);
+    const color = palette.colors[colorIndex];
     for (let i = 0; i < count; i++) {
-        const x = randomRange(random, 0, WIDTH);
-        const y = randomRange(random, 0, HEIGHT);
-        const color = palette.colors[randomInt(random, 0, 4)];
-        addCircle(
+        const x = cx + range(r, -width / 2, width / 2);
+        const y = cy + range(r, -height / 2, height / 2);
+        const edgeX = Math.abs(x - cx) / (width / 2);
+        const edgeY = Math.abs(y - cy) / (height / 2);
+        const edgeFade = clamp(
+            1 - Math.max(edgeX, edgeY) * 0.45,
+            0.1,
+            1
+        );
+        add(
             circles,
             x,
             y,
-            randomRange(random, 1, 4),
-            color,
-            randomRange(random, 0.025, 0.11),
-            2
-        );
-    }
-}
-function paintBlob(random, cx, cy, radius, color, circles, layer, irregularity = 0.5) {
-    const count = Math.floor(radius * 3.4);
-    for (let i = 0; i < count; i++) {
-        const angle = randomRange(random, 0, TAU);
-        const distanceFromCenter = Math.pow(random(), 0.52) * radius;
-        const wave =
-            Math.sin(angle * randomRange(random, 2, 7)) *
-            radius *
-            irregularity *
-            0.15;
-        const r = Math.max(
-            1.5,
-            randomRange(random, radius * 0.018, radius * 0.065)
-        );
-        const x =
-            cx +
-            Math.cos(angle) * (distanceFromCenter + wave);
-        const y =
-            cy +
-            Math.sin(angle) * (distanceFromCenter + wave);
-        addCircle(
-            circles,
-            x,
-            y,
-            r,
-            color,
-            randomRange(random, 0.12, 0.52),
+            range(r, 0.8, 3.8),
+            scaleColor(color, range(r, 0.75, 1.25)),
+            range(r, 0.12, 0.42) * edgeFade,
             layer
         );
     }
 }
-function paintOrb(random, x, y, radius, color, circles, layer) {
+function cloud(r, x, y, size, color, circles, layer) {
+    const blobs = integer(r, 4, 14);
+    for (let i = 0; i < blobs; i++) {
+        const angle = range(r, 0, TAU);
+        const d = range(r, 0, size * 0.65);
+        const bx = x + Math.cos(angle) * d;
+        const by = y + Math.sin(angle) * d;
+        const radius = range(r, size * 0.15, size * 0.5);
+        const count = Math.floor(radius * radius / 3.5);
+        for (let j = 0; j < count; j++) {
+            const a = range(r, 0, TAU);
+            const d2 = Math.sqrt(r()) * radius;
+            add(
+                circles,
+                bx + Math.cos(a) * d2,
+                by + Math.sin(a) * d2,
+                range(r, 0.7, 4),
+                scaleColor(color, range(r, 0.75, 1.2)),
+                range(r, 0.1, 0.45),
+                layer
+            );
+        }
+    }
+}
+function tendril(r, startX, startY, angle, length, color, circles, layer) {
+    const steps = Math.floor(length / 3.5);
+    let x = startX;
+    let y = startY;
+    let direction = angle;
+    for (let i = 0; i < steps; i++) {
+        const t = i / steps;
+        direction += Math.sin(t * TAU * range(r, 1.5, 5)) * 0.035;
+        x += Math.cos(direction) * range(r, 2.5, 5.5);
+        y += Math.sin(direction) * range(r, 2.5, 5.5);
+        const width = lerp(8, 1.2, t);
+        for (let j = 0; j < integer(r, 2, 6); j++) {
+            add(
+                circles,
+                x + range(r, -width, width),
+                y + range(r, -width, width),
+                range(r, 0.8, 3.8),
+                scaleColor(color, range(r, 0.7, 1.3)),
+                range(r, 0.12, 0.45),
+                layer
+            );
+        }
+    }
+}
+function spiral(r, x, y, radius, color, circles, layer) {
+    const turns = range(r, 1.5, 6);
     const count = Math.floor(radius * 7);
-    for (let i = 0; i < count; i++) {
-        const angle = randomRange(random, 0, TAU);
-        const d = Math.sqrt(random()) * radius;
-        const shade = randomRange(random, 0.75, 1.15);
-        addCircle(
-            circles,
-            x + Math.cos(angle) * d,
-            y + Math.sin(angle) * d,
-            randomRange(random, 1.5, 7),
-            multiplyColor(color, shade),
-            randomRange(random, 0.25, 0.85),
-            layer
-        );
-    }
-    const glowCount = Math.floor(radius * 5);
-    for (let i = 0; i < glowCount; i++) {
-        const angle = randomRange(random, 0, TAU);
-        const d = randomRange(random, radius, radius * 2.8);
-        addCircle(
-            circles,
-            x + Math.cos(angle) * d,
-            y + Math.sin(angle) * d,
-            randomRange(random, 2, 8),
-            color,
-            randomRange(random, 0.015, 0.08),
-            layer - 1
-        );
-    }
-}
-function paintSpiral(random, center, radius, color, circles, layer) {
-    const turns = randomRange(random, 1.5, 4.5);
-    const count = randomInt(random, 500, 1200);
     for (let i = 0; i < count; i++) {
         const t = i / count;
         const angle = t * TAU * turns;
         const d = t * radius;
         const wobble =
-            Math.sin(t * TAU * randomRange(random, 2, 6)) *
+            Math.sin(t * TAU * integer(r, 2, 7)) *
             radius *
             0.04;
-        addCircle(
+        add(
             circles,
-            center.x + Math.cos(angle) * (d + wobble),
-            center.y + Math.sin(angle) * (d + wobble),
-            randomRange(random, 2, 7) * (1 - t * 0.5),
+            x + Math.cos(angle) * (d + wobble),
+            y + Math.sin(angle) * (d + wobble),
+            range(r, 0.8, 4.5) * (1 - t * 0.45),
             color,
-            randomRange(random, 0.08, 0.5),
+            range(r, 0.12, 0.55),
             layer
         );
     }
 }
-function paintRibbon(random, start, end, color, circles, layer) {
-    const dx = end.x - start.x;
-    const dy = end.y - start.y;
-    const length = Math.sqrt(dx * dx + dy * dy);
-    const steps = Math.floor(length / 4);
-    const normalX = -dy / length;
-    const normalY = dx / length;
-    for (let i = 0; i < steps; i++) {
-        const t = i / steps;
-        const x = lerp(start.x, end.x, t);
-        const y = lerp(start.y, end.y, t);
-        const wave =
-            Math.sin(t * TAU * randomRange(random, 1, 5)) *
-            randomRange(random, 20, 80);
-        const px = x + normalX * wave;
-        const py = y + normalY * wave;
-        const width = randomRange(random, 8, 28);
-        for (let j = 0; j < randomInt(random, 2, 7); j++) {
-            addCircle(
-                circles,
-                px + randomRange(random, -width, width),
-                py + randomRange(random, -width, width),
-                randomRange(random, 2, 8),
-                color,
-                randomRange(random, 0.08, 0.42),
-                layer
-            );
-        }
-    }
-}
-function paintGeometricForm(random, x, y, size, color, circles, layer) {
-    const type = randomInt(random, 0, 4);
-    if (type === 0) {
-        const points = randomInt(random, 5, 9);
-        for (let i = 0; i < points; i++) {
-            const angle = (i / points) * TAU + randomRange(random, -0.2, 0.2);
-            const radius = size * randomRange(random, 0.65, 1);
-            paintRibbon(
-                random,
-                {
-                    x,
-                    y
-                },
-                {
-                    x: x + Math.cos(angle) * radius,
-                    y: y + Math.sin(angle) * radius
-                },
-                color,
-                circles,
-                layer
-            );
-        }
-    } else if (type === 1) {
-        for (let i = 0; i < 1800; i++) {
-            const angle = randomRange(random, 0, TAU);
-            const d = randomRange(random, size * 0.65, size);
-            addCircle(
-                circles,
-                x + Math.cos(angle) * d,
-                y + Math.sin(angle) * d,
-                randomRange(random, 2, 7),
-                color,
-                randomRange(random, 0.1, 0.4),
-                layer
-            );
-        }
-    } else if (type === 2) {
-        const angle = randomRange(random, 0, TAU);
-        const length = size * randomRange(random, 1.3, 2.2);
-        paintRibbon(
-            random,
-            {
-                x: x - Math.cos(angle) * length * 0.5,
-                y: y - Math.sin(angle) * length * 0.5
-            },
-            {
-                x: x + Math.cos(angle) * length * 0.5,
-                y: y + Math.sin(angle) * length * 0.5
-            },
-            color,
-            circles,
-            layer
-        );
-    } else if (type === 3) {
-        const rings = randomInt(random, 3, 9);
-        for (let ring = 0; ring < rings; ring++) {
-            const ringRadius = size * (ring + 1) / rings;
-            for (let i = 0; i < ringRadius * 2; i++) {
-                const angle = i / (ringRadius * 2) * TAU;
-                addCircle(
-                    circles,
-                    x + Math.cos(angle) * ringRadius,
-                    y + Math.sin(angle) * ringRadius,
-                    randomRange(random, 2, 6),
-                    color,
-                    randomRange(random, 0.12, 0.4),
-                    layer
-                );
-            }
-        }
-    } else {
-        const count = Math.floor(size * 5);
+function portal(r, x, y, radius, palette, circles, layer) {
+    const rings = integer(r, 4, 12);
+    for (let ring = 0; ring < rings; ring++) {
+        const rr = radius * (ring + 1) / rings;
+        const count = Math.floor(rr * 5);
         for (let i = 0; i < count; i++) {
-            const t = random();
-            addCircle(
+            const angle =
+                i / count * TAU +
+                ring * range(r, -0.08, 0.08);
+            add(
                 circles,
-                x + randomRange(random, -size, size),
-                y + randomRange(random, -size, size),
-                randomRange(random, 2, 8),
-                color,
-                randomRange(random, 0.08, 0.45),
-                layer
+                x + Math.cos(angle) * rr,
+                y + Math.sin(angle) * rr,
+                range(r, 1, 4),
+                palette.colors[(ring + 2) % 5],
+                range(r, 0.12, 0.5),
+                layer + ring * 0.1
             );
         }
     }
-}
-function paintOrganicForm(random, x, y, size, color, circles, layer) {
-    const lobes = randomInt(random, 3, 9);
-    for (let i = 0; i < lobes; i++) {
-        const angle = (i / lobes) * TAU;
-        const distanceFromCenter = randomRange(random, size * 0.2, size * 0.65);
-        const px = x + Math.cos(angle) * distanceFromCenter;
-        const py = y + Math.sin(angle) * distanceFromCenter;
-        paintBlob(
-            random,
-            px,
-            py,
-            randomRange(random, size * 0.25, size * 0.6),
-            color,
+    const inside = Math.floor(radius * radius / 2.5);
+    for (let i = 0; i < inside; i++) {
+        const angle = range(r, 0, TAU);
+        const d = Math.sqrt(r()) * radius * 0.7;
+        add(
             circles,
-            layer,
-            randomRange(random, 0.2, 0.9)
+            x + Math.cos(angle) * d,
+            y + Math.sin(angle) * d,
+            range(r, 0.7, 3),
+            palette.colors[0],
+            range(r, 0.15, 0.4),
+            layer - 1
         );
     }
-    paintBlob(
-        random,
-        x,
-        y,
-        size * 0.65,
-        color,
-        circles,
-        layer + 1,
-        0.7
-    );
 }
-function paintSecondaryForms(random, composition, palette, circles) {
-    const formCount = randomInt(random, 4, 11);
-    for (let i = 0; i < formCount; i++) {
-        let x;
-        let y;
-        if (chance(random, 0.6)) {
-            const angle = randomRange(random, 0, TAU);
-            const d = randomRange(random, 150, 650);
-            x = composition.focalX + Math.cos(angle) * d;
-            y = composition.focalY + Math.sin(angle) * d;
-        } else {
-            x = randomRange(random, 50, WIDTH - 50);
-            y = randomRange(random, 50, HEIGHT - 50);
-        }
-        if (distance(
-            { x, y },
-            { x: composition.focalX, y: composition.focalY }
-        ) < 110 && chance(random, 0.75)) {
-            continue;
-        }
-        const size = randomRange(random, 25, 170);
-        const color = palette.colors[randomInt(random, 0, 4)];
-        if (chance(random, 0.52)) {
-            paintOrganicForm(
-                random,
+function impossibleStructure(r, x, y, size, palette, circles) {
+    const colorA = palette.colors[integer(r, 1, 3)];
+    const colorB = palette.colors[integer(r, 2, 4)];
+    const mode = integer(r, 0, 5);
+    if (mode === 0) {
+        for (let i = 0; i < 8; i++) {
+            const angle = i / 8 * TAU + range(r, -0.1, 0.1);
+            tendril(
+                r,
                 x,
                 y,
-                size,
-                color,
+                angle,
+                size * range(r, 0.6, 1.5),
+                i % 2 ? colorA : colorB,
                 circles,
-                randomInt(random, 4, 7)
-            );
-        } else {
-            paintGeometricForm(
-                random,
-                x,
-                y,
-                size,
-                color,
-                circles,
-                randomInt(random, 4, 7)
+                7
             );
         }
-    }
-}
-function paintFocalStructure(random, composition, palette, circles) {
-    const x = composition.focalX;
-    const y = composition.focalY;
-    const size = randomRange(random, 130, 260);
-    const primary = palette.colors[randomInt(random, 1, 3)];
-    const accent = palette.colors[4];
-    const type = randomInt(random, 0, 5);
-    if (type === 0) {
-        paintOrganicForm(random, x, y, size, primary, circles, 8);
-        paintOrb(
-            random,
-            x + randomRange(random, -size * 0.25, size * 0.25),
-            y + randomRange(random, -size * 0.25, size * 0.25),
-            size * 0.22,
-            accent,
-            circles,
-            10
-        );
-    } else if (type === 1) {
-        paintGeometricForm(random, x, y, size, primary, circles, 8);
-        paintSpiral(random, { x, y }, size * 0.8, accent, circles, 10);
-    } else if (type === 2) {
-        paintSpiral(random, { x, y }, size * 1.2, primary, circles, 8);
-        paintOrb(
-            random,
+    } else if (mode === 1) {
+        const levels = integer(r, 4, 12);
+        for (let i = 0; i < levels; i++) {
+            const t = i / levels;
+            const px =
+                x +
+                Math.sin(t * TAU * 1.7) *
+                size *
+                0.55;
+            const py =
+                y -
+                t *
+                size *
+                1.5;
+            cloud(
+                r,
+                px,
+                py,
+                size * (0.2 + t * 0.08),
+                i % 2 ? colorA : colorB,
+                circles,
+                7 + i * 0.1
+            );
+        }
+    } else if (mode === 2) {
+        spiral(
+            r,
             x,
             y,
-            size * 0.18,
-            accent,
+            size * 1.3,
+            colorA,
             circles,
-            11
+            7
         );
-    } else if (type === 3) {
-        const angle = randomRange(random, 0, TAU);
-        for (let i = 0; i < 7; i++) {
-            const t = i / 6;
-            paintBlob(
-                random,
-                x + Math.cos(angle) * size * t * 1.7,
-                y + Math.sin(angle) * size * t * 1.7,
-                size * (0.45 - t * 0.25),
-                i % 2 === 0 ? primary : accent,
-                circles,
-                8 + i
-            );
-        }
-    } else if (type === 4) {
-        paintRibbon(
-            random,
-            {
-                x: x - size,
-                y: y + size * 0.4
-            },
-            {
-                x: x + size,
-                y: y - size * 0.4
-            },
-            primary,
+        spiral(
+            r,
+            x,
+            y,
+            size * 0.65,
+            colorB,
             circles,
             8
         );
-        paintRibbon(
-            random,
-            {
-                x: x - size * 0.3,
-                y: y - size
-            },
-            {
-                x: x + size * 0.3,
-                y: y + size
-            },
-            accent,
+    } else if (mode === 3) {
+        const arms = integer(r, 5, 11);
+        for (let i = 0; i < arms; i++) {
+            const angle = i / arms * TAU;
+            const ex = x + Math.cos(angle) * size;
+            const ey = y + Math.sin(angle) * size;
+            tendril(
+                r,
+                x,
+                y,
+                angle,
+                size,
+                colorA,
+                circles,
+                7
+            );
+            portal(
+                r,
+                ex,
+                ey,
+                size * range(r, 0.08, 0.2),
+                palette,
+                circles,
+                9
+            );
+        }
+    } else if (mode === 4) {
+        const width = size * 1.6;
+        const height = size * 0.7;
+        denseField(
+            r,
+            palette,
+            circles,
+            x,
+            y,
+            width,
+            height,
+            integer(r, 1, 4),
+            1.7,
+            7
+        );
+        spiral(
+            r,
+            x,
+            y,
+            size * 0.75,
+            colorB,
             circles,
             9
         );
     } else {
-        paintOrganicForm(random, x, y, size, primary, circles, 8);
-        paintGeometricForm(
-            random,
-            x + randomRange(random, -size * 0.25, size * 0.25),
-            y + randomRange(random, -size * 0.25, size * 0.25),
-            size * 0.55,
-            accent,
-            circles,
-            10
-        );
-    }
-}
-function paintDirectionalEnergy(random, composition, palette, circles) {
-    const count = randomInt(random, 3, 8);
-    for (let i = 0; i < count; i++) {
-        const angle =
-            Math.atan2(
-                composition.focalY - HEIGHT / 2,
-                composition.focalX - WIDTH / 2
-            ) +
-            randomRange(random, -1.2, 1.2);
-        const startDistance = randomRange(random, 300, 700);
-        const endDistance = randomRange(random, 80, 250);
-        const start = {
-            x: composition.focalX + Math.cos(angle) * startDistance,
-            y: composition.focalY + Math.sin(angle) * startDistance
-        };
-        const end = {
-            x: composition.focalX + Math.cos(angle) * endDistance,
-            y: composition.focalY + Math.sin(angle) * endDistance
-        };
-        paintRibbon(
-            random,
-            start,
-            end,
-            palette.colors[randomInt(random, 1, 4)],
-            circles,
-            5
-        );
-    }
-}
-function paintHighlights(random, composition, palette, circles) {
-    const count = randomInt(random, 2500, 6000);
-    for (let i = 0; i < count; i++) {
-        const angle = randomRange(random, 0, TAU);
-        const d = Math.pow(random(), 1.8) * 360;
-        const x = composition.focalX + Math.cos(angle) * d;
-        const y = composition.focalY + Math.sin(angle) * d;
-        if (x < 0 || x > WIDTH || y < 0 || y > HEIGHT) continue;
-        addCircle(
-            circles,
+        portal(
+            r,
             x,
             y,
-            randomRange(random, 0.7, 3),
-            palette.colors[4],
-            randomRange(random, 0.08, 0.38),
-            12
-        );
-    }
-}
-function addLightGlow(random, x, y, radius, color, circles) {
-    const count = Math.floor(radius * 5);
-    for (let i = 0; i < count; i++) {
-        const angle = randomRange(random, 0, TAU);
-        const d = Math.pow(random(), 0.65) * radius;
-        addCircle(
+            size * range(r, 0.5, 1),
+            palette,
             circles,
-            x + Math.cos(angle) * d,
-            y + Math.sin(angle) * d,
-            randomRange(random, 2, 10),
-            color,
-            randomRange(random, 0.01, 0.07),
-            11
+            8
         );
-    }
-}
-function paintLight(random, composition, palette, circles) {
-    const x =
-        composition.focalX +
-        randomRange(random, -350, 350);
-    const y =
-        composition.focalY +
-        randomRange(random, -350, 350);
-    const radius = randomRange(random, 120, 300);
-    addLightGlow(
-        random,
-        x,
-        y,
-        radius,
-        palette.colors[4],
-        circles
-    );
-}
-function addNegativeSpaceMask(random, composition, circles) {
-    if (composition.negativeSpace < 0.25) return;
-    const side = randomInt(random, 0, 3);
-    let xMin = 0;
-    let xMax = WIDTH;
-    let yMin = 0;
-    let yMax = HEIGHT;
-    if (side === 0) {
-        xMax = WIDTH * 0.3;
-    } else if (side === 1) {
-        xMin = WIDTH * 0.7;
-    } else if (side === 2) {
-        yMax = HEIGHT * 0.25;
-    } else {
-        yMin = HEIGHT * 0.75;
-    }
-    for (const item of circles) {
-        if (
-            item.x >= xMin &&
-            item.x <= xMax &&
-            item.y >= yMin &&
-            item.y <= yMax &&
-            item.layer >= 3
-        ) {
-            item.alpha *= randomRange(random, 0.05, 0.3);
-        }
-    }
-}
-function addSymmetryInfluence(random, composition, circles) {
-    if (composition.symmetry < 0.08) return;
-    const strength = composition.symmetry;
-    for (const item of circles) {
-        if (item.layer < 5) continue;
-        if (chance(random, strength * 0.16)) {
-            const mirroredX = WIDTH - item.x;
-            addCircle(
+        const count = integer(r, 5, 15);
+        for (let i = 0; i < count; i++) {
+            const angle = range(r, 0, TAU);
+            const d = range(r, size, size * 2.2);
+            tendril(
+                r,
+                x + Math.cos(angle) * d,
+                y + Math.sin(angle) * d,
+                angle + Math.PI,
+                range(r, size * 0.2, size * 0.8),
+                colorA,
                 circles,
-                mirroredX,
-                item.y + randomRange(random, -30, 30),
-                item.radius * randomRange(random, 0.7, 1.1),
-                item.color,
-                item.alpha * strength,
-                Math.max(4, item.layer - 1)
+                6
             );
         }
     }
 }
-function createTitle(random, composition, palette) {
-    const prefixes = [
-        "THE",
-        "A",
-        "BEYOND",
-        "WITHIN",
-        "UNDER",
-        "ABOVE",
-        "BETWEEN",
-        "AFTER",
-        "BEFORE",
-        "WHERE"
-    ];
-    const adjectives = [
-        "SILENT",
-        "ETERNAL",
-        "HOLLOW",
-        "LUMINOUS",
-        "FORGOTTEN",
-        "INFINITE",
-        "CRIMSON",
-        "VIOLET",
-        "GOLDEN",
-        "BROKEN",
-        "DREAMING",
-        "RESTLESS",
-        "ANCIENT",
-        "WEIGHTLESS",
-        "OTHER"
-    ];
-    const nouns = [
-        "MACHINE",
-        "GARDEN",
-        "HORIZON",
-        "MEMORY",
-        "OCEAN",
-        "CATHEDRAL",
-        "ECHO",
-        "WORLD",
-        "FRAGMENT",
-        "VOID",
-        "ORBIT",
-        "HEART",
-        "MONUMENT",
+function dreamObject(r, x, y, size, palette, circles) {
+    const type = integer(r, 0, 8);
+    if (type === 0) {
+        portal(r, x, y, size, palette, circles, 9);
+    }
+    if (type === 1) {
+        impossibleStructure(r, x, y, size, palette, circles);
+    }
+    if (type === 2) {
+        cloud(
+            r,
+            x,
+            y,
+            size,
+            palette.colors[integer(r, 1, 4)],
+            circles,
+            8
+        );
+    }
+    if (type === 3) {
+        spiral(
+            r,
+            x,
+            y,
+            size * 1.5,
+            palette.colors[integer(r, 1, 4)],
+            circles,
+            8
+        );
+    }
+    if (type === 4) {
+        for (let i = 0; i < integer(r, 3, 9); i++) {
+            const angle = range(r, 0, TAU);
+            tendril(
+                r,
+                x,
+                y,
+                angle,
+                size * range(r, 0.5, 1.5),
+                palette.colors[integer(r, 1, 4)],
+                circles,
+                7
+            );
+        }
+    }
+    if (type === 5) {
+        denseField(
+            r,
+            palette,
+            circles,
+            x,
+            y,
+            size * 2,
+            size * 2,
+            integer(r, 1, 4),
+            2.5,
+            8
+        );
+    }
+    if (type === 6) {
+        const copies = integer(r, 3, 7);
+        for (let i = 0; i < copies; i++) {
+            const angle = i / copies * TAU;
+            portal(
+                r,
+                x + Math.cos(angle) * size * 0.8,
+                y + Math.sin(angle) * size * 0.8,
+                size * range(r, 0.12, 0.3),
+                palette,
+                circles,
+                9
+            );
+        }
+    }
+    if (type === 7) {
+        for (let i = 0; i < integer(r, 8, 20); i++) {
+            const angle = range(r, 0, TAU);
+            const d = range(r, size * 0.3, size);
+            add(
+                circles,
+                x + Math.cos(angle) * d,
+                y + Math.sin(angle) * d,
+                range(r, 3, 13),
+                palette.colors[integer(r, 1, 4)],
+                range(r, 0.2, 0.65),
+                9
+            );
+        }
+    }
+    if (type === 8) {
+        impossibleStructure(
+            r,
+            x,
+            y,
+            size * range(r, 0.6, 1.4),
+            palette,
+            circles
+        );
+    }
+}
+function focalDream(r, composition, palette, circles) {
+    const x = composition.focalX;
+    const y = composition.focalY;
+    const size = range(
+        r,
+        130,
+        300
+    ) * composition.scale;
+    dreamObject(
+        r,
+        x,
+        y,
+        size,
+        palette,
+        circles
+    );
+    if (chance(r, 0.75)) {
+        portal(
+            r,
+            x + range(r, -size * 0.4, size * 0.4),
+            y + range(r, -size * 0.4, size * 0.4),
+            size * range(r, 0.12, 0.3),
+            palette,
+            circles,
+            11
+        );
+    }
+}
+function surroundingDreams(r, composition, palette, circles) {
+    const count = integer(
+        r,
+        7,
+        20
+    );
+    for (let i = 0; i < count; i++) {
+        const angle = range(r, 0, TAU);
+        const distance = range(
+            r,
+            160,
+            650
+        ) * (0.65 + composition.chaos * 0.6);
+        const x =
+            composition.focalX +
+            Math.cos(angle) * distance;
+        const y =
+            composition.focalY +
+            Math.sin(angle) * distance;
+        if (
+            x < -100 ||
+            x > WIDTH + 100 ||
+            y < -100 ||
+            y > HEIGHT + 100
+        ) continue;
+        const size = range(r, 15, 130);
+        dreamObject(
+            r,
+            x,
+            y,
+            size,
+            palette,
+            circles
+        );
+    }
+}
+function paintHugeColourMass(r, composition, palette, circles) {
+    const count = integer(r, 2, 6);
+    for (let i = 0; i < count; i++) {
+        const x = range(r, -100, WIDTH + 100);
+        const y = range(r, -100, HEIGHT + 100);
+        const width = range(r, 180, 700);
+        const height = range(r, 100, 600);
+        denseField(
+            r,
+            palette,
+            circles,
+            x,
+            y,
+            width,
+            height,
+            integer(r, 0, 4),
+            range(r, 1.2, 2.8),
+            3
+        );
+    }
+}
+function atmosphere(r, palette, circles) {
+    const count = 22000;
+    for (let i = 0; i < count; i++) {
+        const x = range(r, 0, WIDTH);
+        const y = range(r, 0, HEIGHT);
+        const color =
+            palette.colors[integer(r, 0, 4)];
+        add(
+            circles,
+            x,
+            y,
+            range(r, 0.5, 2.5),
+            color,
+            range(r, 0.015, 0.08),
+            12
+        );
+    }
+}
+function stars(r, palette, circles) {
+    const count = integer(r, 3000, 9000);
+    for (let i = 0; i < count; i++) {
+        const x = range(r, 0, WIDTH);
+        const y = range(r, 0, HEIGHT);
+        const color =
+            chance(r, 0.65)
+                ? palette.colors[4]
+                : palette.colors[integer(r, 0, 4)];
+        add(
+            circles,
+            x,
+            y,
+            range(r, 0.35, 2.5),
+            color,
+            range(r, 0.08, 0.5),
+            13
+        );
+    }
+}
+function highlightCore(r, composition, palette, circles) {
+    const count = integer(r, 7000, 16000);
+    for (let i = 0; i < count; i++) {
+        const angle = range(r, 0, TAU);
+        const d = Math.pow(r(), 1.6) * 300;
+        const x =
+            composition.focalX +
+            Math.cos(angle) * d;
+        const y =
+            composition.focalY +
+            Math.sin(angle) * d;
+        if (
+            x < 0 ||
+            x > WIDTH ||
+            y < 0 ||
+            y > HEIGHT
+        ) continue;
+        add(
+            circles,
+            x,
+            y,
+            range(r, 0.4, 2.4),
+            palette.colors[4],
+            range(r, 0.06, 0.35),
+            14
+        );
+    }
+}
+function symmetryEcho(r, composition, circles) {
+    if (composition.symmetry < 0.15) return;
+    const original = circles.slice();
+    for (const c of original) {
+        if (c.layer < 7) continue;
+        if (chance(r, composition.symmetry * 0.08)) {
+            const mx = WIDTH - c.x;
+            add(
+                circles,
+                mx + range(r, -25, 25),
+                c.y + range(r, -25, 25),
+                c.radius * range(r, 0.7, 1.1),
+                c.color,
+                c.alpha * composition.symmetry,
+                c.layer
+            );
+        }
+    }
+}
+function negativeSpace(r, composition, circles) {
+    if (composition.emptiness < 0.18) return;
+    const side = integer(r, 0, 3);
+    let test;
+    if (side === 0) {
+        test = c => c.x < WIDTH * 0.25;
+    } else if (side === 1) {
+        test = c => c.x > WIDTH * 0.75;
+    } else if (side === 2) {
+        test = c => c.y < HEIGHT * 0.25;
+    } else {
+        test = c => c.y > HEIGHT * 0.75;
+    }
+    for (const c of circles) {
+        if (c.layer < 4) continue;
+        if (test(c)) {
+            c.alpha *= range(
+                r,
+                0.08,
+                0.4
+            );
+        }
+    }
+}
+function title(r) {
+    const words = [
+        "SOMETHING",
+        "NOTHING",
+        "ELSEWHERE",
+        "HOME",
         "DREAM",
+        "MEMORY",
+        "SLEEP",
+        "THE OTHER SIDE",
+        "YESTERDAY",
+        "TOMORROW",
+        "SILENCE",
+        "STATIC",
+        "ROOM",
+        "PLACE",
+        "VOID",
+        "LIGHT",
+        "OCEAN",
+        "SKY",
+        "THOUGHT",
         "SIGNAL",
-        "SHADOW",
-        "THRESHOLD",
-        "STAR",
-        "RIVER",
-        "SILENCE"
+        "GARDEN",
+        "DOOR",
+        "HALLWAY",
+        "WORLD",
+        "ECHO"
     ];
     const structures = [
-        `${prefixes[randomInt(random, 0, prefixes.length - 1)]} ${adjectives[randomInt(random, 0, adjectives.length - 1)]} ${nouns[randomInt(random, 0, nouns.length - 1)]}`,
-        `${adjectives[randomInt(random, 0, adjectives.length - 1)]} ${nouns[randomInt(random, 0, nouns.length - 1)]}`,
-        `${nouns[randomInt(random, 0, nouns.length - 1)]} OF ${adjectives[randomInt(random, 0, adjectives.length - 1)]}`,
-        `${prefixes[randomInt(random, 0, prefixes.length - 1)]} ${nouns[randomInt(random, 0, nouns.length - 1)]}`,
-        `${adjectives[randomInt(random, 0, adjectives.length - 1)]} ${nouns[randomInt(random, 0, nouns.length - 1)]} ${nouns[randomInt(random, 0, nouns.length - 1)]}`
+        () => `THE ${words[integer(r, 0, words.length - 1)]}`,
+        () => `${words[integer(r, 0, words.length - 1)]} WITHOUT END`,
+        () => `WHERE ${words[integer(r, 0, words.length - 1)]} GOES`,
+        () => `A ${words[integer(r, 0, words.length - 1)]} IN ${words[integer(r, 0, words.length - 1)]}`,
+        () => `${words[integer(r, 0, words.length - 1)]} AFTER ${words[integer(r, 0, words.length - 1)]}`,
+        () => `I REMEMBER ${words[integer(r, 0, words.length - 1)]}`,
+        () => `THE ${words[integer(r, 0, words.length - 1)]} THAT WASN'T THERE`,
+        () => `SOMEWHERE ${words[integer(r, 0, words.length - 1)]}`,
+        () => `${words[integer(r, 0, words.length - 1)]} / ${words[integer(r, 0, words.length - 1)]}`,
+        () => `DREAM ${integer(r, 2, 99)}`
     ];
-    return structures[randomInt(random, 0, structures.length - 1)];
+    return structures[
+        integer(r, 0, structures.length - 1)
+    ]();
 }
 function render(seed) {
-    const random = createRandom(seed);
+    const r = rng(seed);
     canvas.width = WIDTH;
     canvas.height = HEIGHT;
-    const palette = makePalette(random);
-    const composition = createComposition(random);
+    const palette = makePalette(r);
+    const composition = makeComposition(r);
     const circles = [];
-    ctx.fillStyle = rgbString(palette.background, 1);
-    ctx.fillRect(0, 0, WIDTH, HEIGHT);
-    paintGradient(random, palette, circles);
-    paintAtmosphere(random, palette, circles);
-    paintLight(
-        random,
+    ctx.fillStyle = rgba(
+        palette.background,
+        1
+    );
+    ctx.fillRect(
+        0,
+        0,
+        WIDTH,
+        HEIGHT
+    );
+    background(
+        r,
+        palette,
+        circles
+    );
+    paintHugeColourMass(
+        r,
         composition,
         palette,
         circles
     );
-    paintSecondaryForms(
-        random,
+    focalDream(
+        r,
         composition,
         palette,
         circles
     );
-    paintDirectionalEnergy(
-        random,
+    surroundingDreams(
+        r,
         composition,
         palette,
         circles
     );
-    paintFocalStructure(
-        random,
-        composition,
-        palette,
-        circles
-    );
-    paintHighlights(
-        random,
-        composition,
-        palette,
-        circles
-    );
-    addNegativeSpaceMask(
-        random,
-        composition,
-        circles
-    );
-    addSymmetryInfluence(
-        random,
-        composition,
-        circles
-    );
-    circles.sort((a, b) => a.layer - b.layer);
-    for (const item of circles) {
-        ctx.beginPath();
-        ctx.arc(
-            item.x,
-            item.y,
-            item.radius,
-            0,
-            TAU
+    if (chance(r, 0.85)) {
+        spiral(
+            r,
+            range(r, 100, WIDTH - 100),
+            range(r, 100, HEIGHT - 100),
+            range(r, 100, 400),
+            palette.colors[integer(r, 1, 4)],
+            circles,
+            6
         );
-        ctx.fillStyle = rgbString(
-            item.color,
-            item.alpha
-        );
-        ctx.fill();
     }
-    const title = createTitle(
-        random,
-        composition,
-        palette
+    if (chance(r, 0.8)) {
+        for (let i = 0; i < integer(r, 2, 8); i++) {
+            tendril(
+                r,
+                range(r, 0, WIDTH),
+                range(r, 0, HEIGHT),
+                range(r, 0, TAU),
+                range(r, 150, 700),
+                palette.colors[integer(r, 1, 4)],
+                circles,
+                5
+            );
+        }
+    }
+    atmosphere(
+        r,
+        palette,
+        circles
     );
+    stars(
+        r,
+        palette,
+        circles
+    );
+    highlightCore(
+        r,
+        composition,
+        palette,
+        circles
+    );
+    symmetryEcho(
+        r,
+        composition,
+        circles
+    );
+    negativeSpace(
+        r,
+        composition,
+        circles
+    );
+    draw(circles);
+    const artworkTitle = title(r);
     currentArtwork = {
         seed,
-        title,
-        composition,
-        palette,
-        circleCount: circles.length
+        title: artworkTitle,
+        circles: circles.length
     };
-    titleElement.textContent = title;
+    titleElement.textContent = artworkTitle;
     seedElement.textContent = seed;
-    compositionElement.textContent = composition.mode;
+    compositionElement.textContent = composition.name;
     paletteElement.textContent = palette.name;
-    circlesElement.textContent = circles.length.toLocaleString();
+    circlesElement.textContent =
+        circles.length.toLocaleString();
 }
 function generate() {
     render(randomSeed());
 }
 function saveArtwork() {
     if (!currentArtwork) return;
-    const safeTitle = currentArtwork.title
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, "-")
-        .replace(/^-|-$/g, "");
-    const link = document.createElement("a");
+    const safe =
+        currentArtwork.title
+            .toLowerCase()
+            .replace(/[^a-z0-9]+/g, "-")
+            .replace(/^-|-$/g, "");
+    const link =
+        document.createElement("a");
     link.download =
-        `${safeTitle}-${currentArtwork.seed}.png`;
-    link.href = canvas.toDataURL("image/png");
+        `${safe}-${currentArtwork.seed}.png`;
+    link.href =
+        canvas.toDataURL("image/png");
     link.click();
 }
 document
