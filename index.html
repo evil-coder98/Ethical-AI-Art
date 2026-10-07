@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <title>ORIGIN — Procedural AI Art</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <main>
+        <header>
+            <div>
+                <h1>ORIGIN</h1>
+                <p>Procedural AI Art Engine</p>
+            </div>
+
+            <div class="controls">
+                <button id="generate">GENERATE</button>
+                <button id="save">SAVE PNG</button>
+            </div>
+        </header>
+
+        <section class="art-container">
+            <canvas id="canvas"></canvas>
+        </section>
+
+        <section class="info">
+            <div>
+                <span class="label">TITLE</span>
+                <span id="title">—</span>
+            </div>
+
+            <div>
+                <span class="label">SEED</span>
+                <span id="seed">—</span>
+            </div>
+
+            <div>
+                <span class="label">COMPOSITION</span>
+                <span id="composition">—</span>
+            </div>
+
+            <div>
+                <span class="label">PALETTE</span>
+                <span id="palette">—</span>
+            </div>
+
+            <div>
+                <span class="label">CIRCLES</span>
+                <span id="circles">—</span>
+            </div>
+        </section>
+    </main>
+
+    <script src="game.js"></script>
+</body>
+</html>
