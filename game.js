@@ -1,63 +1,50 @@
 const canvas = document.getElementById("canvas");
-const ctx = canvas.getContext("2d");
-
+const ctx = canvas.getContext("2d", { alpha: false });
 const titleElement = document.getElementById("title");
 const seedElement = document.getElementById("seed");
 const compositionElement = document.getElementById("composition");
 const paletteElement = document.getElementById("palette");
 const circlesElement = document.getElementById("circles");
-
 const TAU = Math.PI * 2;
-
+const WIDTH = 1200;
+const HEIGHT = 900;
 let currentArtwork = null;
-
 function randomSeed() {
     return Math.floor(Math.random() * 2147483647);
 }
-
 function createRandom(seed) {
     let value = seed >>> 0;
-
     return function () {
         value += 0x6D2B79F5;
         let t = value;
-
         t = Math.imul(t ^ (t >>> 15), t | 1);
         t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-
         return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
     };
 }
-
 function randomRange(random, min, max) {
     return min + random() * (max - min);
 }
-
 function randomInt(random, min, max) {
     return Math.floor(randomRange(random, min, max + 1));
 }
-
+function chance(random, amount) {
+    return random() < amount;
+}
 function clamp(value, min, max) {
     return Math.max(min, Math.min(max, value));
 }
-
-function lerp(a, b, amount) {
-    return a + (b - a) * amount;
+function lerp(a, b, t) {
+    return a + (b - a) * t;
 }
-
 function hsvToRgb(h, s, v) {
     h = ((h % 360) + 360) % 360;
-    s = clamp(s, 0, 1);
-    v = clamp(v, 0, 1);
-
     const c = v * s;
     const x = c * (1 - Math.abs((h / 60) % 2 - 1));
     const m = v - c;
-
     let r = 0;
     let g = 0;
     let b = 0;
-
     if (h < 60) {
         r = c;
         g = x;
@@ -77,151 +64,170 @@ function hsvToRgb(h, s, v) {
         r = c;
         b = x;
     }
-
     return {
         r: Math.round((r + m) * 255),
         g: Math.round((g + m) * 255),
         b: Math.round((b + m) * 255)
     };
 }
-
-function rgbString(color, alpha = 1) {
+function mixColor(a, b, amount) {
+    return {
+        r: Math.round(lerp(a.r, b.r, amount)),
+        g: Math.round(lerp(a.g, b.g, amount)),
+        b: Math.round(lerp(a.b, b.b, amount))
+    };
+}
+function multiplyColor(color, amount) {
+    return {
+        r: clamp(Math.round(color.r * amount), 0, 255),
+        g: clamp(Math.round(color.g * amount), 0, 255),
+        b: clamp(Math.round(color.b * amount), 0, 255)
+    };
+}
+function rgbString(color, alpha) {
     return `rgba(${color.r},${color.g},${color.b},${alpha})`;
 }
-
-function createPalette(random) {
+function makePalette(random) {
     const baseHue = randomRange(random, 0, 360);
-
-    const systems = [
-        {
-            name: "ANALOGOUS",
-            hues: [
-                baseHue - 35,
-                baseHue - 15,
-                baseHue,
-                baseHue + 18,
-                baseHue + 38
-            ]
-        },
-        {
-            name: "COMPLEMENTARY",
-            hues: [
-                baseHue - 15,
-                baseHue,
-                baseHue + 15,
-                baseHue + 180,
-                baseHue + 195
-            ]
-        },
-        {
-            name: "TRIADIC",
-            hues: [
-                baseHue,
-                baseHue + 120,
-                baseHue + 240,
-                baseHue + 120,
-                baseHue
-            ]
-        },
-        {
-            name: "SPLIT-COMPLEMENTARY",
-            hues: [
-                baseHue,
-                baseHue - 150,
-                baseHue + 150,
-                baseHue + 20,
-                baseHue - 20
-            ]
-        },
-        {
-            name: "MONOCHROMATIC",
-            hues: [
-                baseHue,
-                baseHue,
-                baseHue,
-                baseHue,
-                baseHue
-            ]
-        }
+    const modes = [
+        "ANALOGOUS",
+        "COMPLEMENTARY",
+        "TRIADIC",
+        "SPLIT-COMPLEMENTARY",
+        "TETRADIC",
+        "MONOCHROMATIC",
+        "CHAOTIC HARMONY"
     ];
-
-    const system = systems[randomInt(random, 0, systems.length - 1)];
-
-    const palette = system.hues.map((hue, index) => {
-        let saturation;
-        let value;
-
-        if (index === 0) {
-            saturation = randomRange(random, 0.35, 0.65);
-            value = randomRange(random, 0.18, 0.35);
-        } else if (index === 4) {
-            saturation = randomRange(random, 0.45, 0.85);
-            value = randomRange(random, 0.75, 1);
-        } else {
-            saturation = randomRange(random, 0.35, 0.8);
-            value = randomRange(random, 0.35, 0.85);
-        }
-
+    const mode = modes[randomInt(random, 0, modes.length - 1)];
+    let hues;
+    if (mode === "ANALOGOUS") {
+        hues = [
+            baseHue - 38,
+            baseHue - 18,
+            baseHue,
+            baseHue + 18,
+            baseHue + 38
+        ];
+    } else if (mode === "COMPLEMENTARY") {
+        hues = [
+            baseHue,
+            baseHue + 12,
+            baseHue - 12,
+            baseHue + 180,
+            baseHue + 192
+        ];
+    } else if (mode === "TRIADIC") {
+        hues = [
+            baseHue,
+            baseHue + 120,
+            baseHue + 240,
+            baseHue + 120,
+            baseHue
+        ];
+    } else if (mode === "SPLIT-COMPLEMENTARY") {
+        hues = [
+            baseHue,
+            baseHue + 150,
+            baseHue + 210,
+            baseHue + 25,
+            baseHue - 25
+        ];
+    } else if (mode === "TETRADIC") {
+        hues = [
+            baseHue,
+            baseHue + 90,
+            baseHue + 180,
+            baseHue + 270,
+            baseHue + 45
+        ];
+    } else if (mode === "MONOCHROMATIC") {
+        hues = [
+            baseHue,
+            baseHue,
+            baseHue,
+            baseHue,
+            baseHue
+        ];
+    } else {
+        hues = [
+            baseHue,
+            baseHue + randomRange(random, 25, 80),
+            baseHue + randomRange(random, 100, 180),
+            baseHue + randomRange(random, 190, 270),
+            baseHue + randomRange(random, 280, 350)
+        ];
+    }
+    const colors = hues.map((hue, index) => {
+        const saturation = index === 0
+            ? randomRange(random, 0.28, 0.55)
+            : randomRange(random, 0.35, 0.95);
+        const value = index === 0
+            ? randomRange(random, 0.08, 0.24)
+            : randomRange(random, 0.35, 1);
         return hsvToRgb(hue, saturation, value);
     });
-
+    const background = chance(random, 0.72)
+        ? mixColor(colors[0], { r: 0, g: 0, b: 0 }, randomRange(random, 0.35, 0.8))
+        : hsvToRgb(randomRange(random, 0, 360), 0.1, 0.06);
     return {
-        name: system.name,
-        colors: palette
+        name: mode,
+        colors,
+        background
     };
 }
-
-function chooseComposition(random) {
-    const compositions = [
+function createComposition(random) {
+    const modes = [
         "RULE OF THIRDS",
+        "GOLDEN SPIRAL",
+        "DIAGONAL TENSION",
+        "RADIAL BALANCE",
         "ASYMMETRICAL BALANCE",
-        "CENTRAL FOCUS",
-        "DIAGONAL FLOW",
-        "GOLDEN BALANCE"
+        "CENTRAL GRAVITY",
+        "EDGE DOMINANCE",
+        "NEGATIVE SPACE",
+        "CONTROLLED CHAOS"
     ];
-
-    return compositions[randomInt(random, 0, compositions.length - 1)];
-}
-
-function createScene(random, width, height) {
-    const sceneTypes = [
-        "MOUNTAIN",
-        "FOREST",
-        "OCEAN",
-        "DESERT",
-        "VALLEY",
-        "RUINS",
-        "ISLAND",
-        "NIGHT CITY"
+    const mode = modes[randomInt(random, 0, modes.length - 1)];
+    const thirds = [
+        [WIDTH * 0.333, HEIGHT * 0.333],
+        [WIDTH * 0.666, HEIGHT * 0.333],
+        [WIDTH * 0.333, HEIGHT * 0.666],
+        [WIDTH * 0.666, HEIGHT * 0.666]
     ];
-
-    const type = sceneTypes[randomInt(random, 0, sceneTypes.length - 1)];
-
-    const thirdsX = [
-        width * 0.333,
-        width * 0.666
-    ];
-
-    const thirdsY = [
-        height * 0.333,
-        height * 0.666
-    ];
-
-    const focalX = thirdsX[randomInt(random, 0, 1)] + randomRange(random, -width * 0.08, width * 0.08);
-    const focalY = thirdsY[randomInt(random, 0, 1)] + randomRange(random, -height * 0.08, height * 0.08);
-
+    let focal;
+    if (mode === "CENTRAL GRAVITY") {
+        focal = {
+            x: WIDTH * 0.5 + randomRange(random, -80, 80),
+            y: HEIGHT * 0.5 + randomRange(random, -80, 80)
+        };
+    } else if (mode === "EDGE DOMINANCE") {
+        const side = randomInt(random, 0, 3);
+        focal = side === 0
+            ? { x: randomRange(random, 70, 220), y: randomRange(random, 100, 800) }
+            : side === 1
+                ? { x: randomRange(random, 980, 1130), y: randomRange(random, 100, 800) }
+                : side === 2
+                    ? { x: randomRange(random, 100, 1100), y: randomRange(random, 60, 190) }
+                    : { x: randomRange(random, 100, 1100), y: randomRange(random, 710, 840) };
+    } else {
+        const point = thirds[randomInt(random, 0, thirds.length - 1)];
+        focal = {
+            x: point[0] + randomRange(random, -150, 150),
+            y: point[1] + randomRange(random, -130, 130)
+        };
+    }
     return {
-        type,
-        focalX,
-        focalY,
-        horizon: randomRange(random, height * 0.42, height * 0.67),
-        lightX: randomRange(random, width * 0.15, width * 0.85),
-        lightY: randomRange(random, height * 0.1, height * 0.45),
-        scale: randomRange(random, 0.85, 1.2)
+        mode,
+        focalX: clamp(focal.x, 80, WIDTH - 80),
+        focalY: clamp(focal.y, 80, HEIGHT - 80),
+        symmetry: randomRange(random, 0, 0.35),
+        tension: randomRange(random, 0.2, 1),
+        negativeSpace: randomRange(random, 0.08, 0.55),
+        rhythm: randomRange(random, 0.25, 1),
+        scaleVariation: randomRange(random, 0.6, 1.8)
     };
 }
-
-function circle(x, y, radius, color, alpha, layer = 0) {
+function makeCircle(x, y, radius, color, alpha, layer) {
     return {
         x,
         y,
@@ -231,627 +237,711 @@ function circle(x, y, radius, color, alpha, layer = 0) {
         layer
     };
 }
-
-function drawCircle(item) {
-    ctx.beginPath();
-    ctx.arc(item.x, item.y, item.radius, 0, TAU);
-    ctx.fillStyle = rgbString(item.color, item.alpha);
-    ctx.fill();
+function addCircle(circles, x, y, radius, color, alpha, layer) {
+    circles.push(makeCircle(x, y, radius, color, alpha, layer));
 }
-
-function paintBackground(random, scene, palette, width, height, circles) {
-    const rows = Math.ceil(height / 9);
-
-    for (let y = 0; y < height; y += 9) {
-        const progress = y / height;
-
-        let color;
-
-        if (progress < scene.horizon / height) {
-            color = palette.colors[
-                progress < 0.35 ? 0 : 1
-            ];
-        } else {
-            color = palette.colors[2];
-        }
-
-        for (let x = 0; x < width; x += 9) {
-            const jitterX = randomRange(random, -5, 5);
-            const jitterY = randomRange(random, -5, 5);
-
-            const radius = randomRange(random, 5, 10);
-
-            const brightness = randomRange(random, 0.65, 1.15);
-
-            const c = {
-                r: clamp(Math.round(color.r * brightness), 0, 255),
-                g: clamp(Math.round(color.g * brightness), 0, 255),
-                b: clamp(Math.round(color.b * brightness), 0, 255)
-            };
-
-            circles.push(
-                circle(
-                    x + jitterX,
-                    y + jitterY,
-                    radius,
-                    c,
-                    randomRange(random, 0.12, 0.3),
-                    0
-                )
+function distance(a, b) {
+    const dx = a.x - b.x;
+    const dy = a.y - b.y;
+    return Math.sqrt(dx * dx + dy * dy);
+}
+function paintGradient(random, palette, circles) {
+    const spacing = 5;
+    for (let y = 0; y < HEIGHT; y += spacing) {
+        const progress = y / HEIGHT;
+        const upper = palette.background;
+        const lower = mixColor(
+            palette.background,
+            palette.colors[0],
+            0.18
+        );
+        const base = mixColor(upper, lower, progress);
+        for (let x = 0; x < WIDTH; x += spacing) {
+            const variation = randomRange(random, 0.82, 1.18);
+            addCircle(
+                circles,
+                x + randomRange(random, -3, 3),
+                y + randomRange(random, -3, 3),
+                randomRange(random, 2.5, 5.5),
+                multiplyColor(base, variation),
+                randomRange(random, 0.12, 0.24),
+                0
             );
         }
     }
 }
-
-function paintGlow(random, x, y, radius, color, circles, layer) {
-    const count = Math.floor(radius * 2.5);
-
+function paintAtmosphere(random, palette, circles) {
+    const count = 14000;
     for (let i = 0; i < count; i++) {
-        const angle = randomRange(random, 0, TAU);
-        const distance = Math.pow(random(), 0.6) * radius;
-
-        const px = x + Math.cos(angle) * distance;
-        const py = y + Math.sin(angle) * distance;
-
-        const size = randomRange(random, 3, 11) * (1 - distance / radius);
-
-        circles.push(
-            circle(
-                px,
-                py,
-                Math.max(1, size),
-                color,
-                randomRange(random, 0.015, 0.06),
-                layer
-            )
+        const x = randomRange(random, 0, WIDTH);
+        const y = randomRange(random, 0, HEIGHT);
+        const color = palette.colors[randomInt(random, 0, 4)];
+        addCircle(
+            circles,
+            x,
+            y,
+            randomRange(random, 1, 4),
+            color,
+            randomRange(random, 0.025, 0.11),
+            2
         );
     }
 }
-
-function paintSunOrMoon(random, scene, palette, width, height, circles) {
-    const radius = randomRange(random, width * 0.035, width * 0.075);
-
-    const x = scene.lightX;
-    const y = scene.lightY;
-
-    const color = palette.colors[4];
-
-    paintGlow(random, x, y, radius * 4, color, circles, 1);
-
+function paintBlob(random, cx, cy, radius, color, circles, layer, irregularity = 0.5) {
+    const count = Math.floor(radius * 3.4);
+    for (let i = 0; i < count; i++) {
+        const angle = randomRange(random, 0, TAU);
+        const distanceFromCenter = Math.pow(random(), 0.52) * radius;
+        const wave =
+            Math.sin(angle * randomRange(random, 2, 7)) *
+            radius *
+            irregularity *
+            0.15;
+        const r = Math.max(
+            1.5,
+            randomRange(random, radius * 0.018, radius * 0.065)
+        );
+        const x =
+            cx +
+            Math.cos(angle) * (distanceFromCenter + wave);
+        const y =
+            cy +
+            Math.sin(angle) * (distanceFromCenter + wave);
+        addCircle(
+            circles,
+            x,
+            y,
+            r,
+            color,
+            randomRange(random, 0.12, 0.52),
+            layer
+        );
+    }
+}
+function paintOrb(random, x, y, radius, color, circles, layer) {
     const count = Math.floor(radius * 7);
-
     for (let i = 0; i < count; i++) {
         const angle = randomRange(random, 0, TAU);
-        const distance = Math.sqrt(random()) * radius;
-
-        circles.push(
-            circle(
-                x + Math.cos(angle) * distance,
-                y + Math.sin(angle) * distance,
-                randomRange(random, 3, 8),
+        const d = Math.sqrt(random()) * radius;
+        const shade = randomRange(random, 0.75, 1.15);
+        addCircle(
+            circles,
+            x + Math.cos(angle) * d,
+            y + Math.sin(angle) * d,
+            randomRange(random, 1.5, 7),
+            multiplyColor(color, shade),
+            randomRange(random, 0.25, 0.85),
+            layer
+        );
+    }
+    const glowCount = Math.floor(radius * 5);
+    for (let i = 0; i < glowCount; i++) {
+        const angle = randomRange(random, 0, TAU);
+        const d = randomRange(random, radius, radius * 2.8);
+        addCircle(
+            circles,
+            x + Math.cos(angle) * d,
+            y + Math.sin(angle) * d,
+            randomRange(random, 2, 8),
+            color,
+            randomRange(random, 0.015, 0.08),
+            layer - 1
+        );
+    }
+}
+function paintSpiral(random, center, radius, color, circles, layer) {
+    const turns = randomRange(random, 1.5, 4.5);
+    const count = randomInt(random, 500, 1200);
+    for (let i = 0; i < count; i++) {
+        const t = i / count;
+        const angle = t * TAU * turns;
+        const d = t * radius;
+        const wobble =
+            Math.sin(t * TAU * randomRange(random, 2, 6)) *
+            radius *
+            0.04;
+        addCircle(
+            circles,
+            center.x + Math.cos(angle) * (d + wobble),
+            center.y + Math.sin(angle) * (d + wobble),
+            randomRange(random, 2, 7) * (1 - t * 0.5),
+            color,
+            randomRange(random, 0.08, 0.5),
+            layer
+        );
+    }
+}
+function paintRibbon(random, start, end, color, circles, layer) {
+    const dx = end.x - start.x;
+    const dy = end.y - start.y;
+    const length = Math.sqrt(dx * dx + dy * dy);
+    const steps = Math.floor(length / 4);
+    const normalX = -dy / length;
+    const normalY = dx / length;
+    for (let i = 0; i < steps; i++) {
+        const t = i / steps;
+        const x = lerp(start.x, end.x, t);
+        const y = lerp(start.y, end.y, t);
+        const wave =
+            Math.sin(t * TAU * randomRange(random, 1, 5)) *
+            randomRange(random, 20, 80);
+        const px = x + normalX * wave;
+        const py = y + normalY * wave;
+        const width = randomRange(random, 8, 28);
+        for (let j = 0; j < randomInt(random, 2, 7); j++) {
+            addCircle(
+                circles,
+                px + randomRange(random, -width, width),
+                py + randomRange(random, -width, width),
+                randomRange(random, 2, 8),
                 color,
-                randomRange(random, 0.35, 0.8),
-                2
-            )
-        );
-    }
-}
-
-function mountainPath(random, baseY, peakX, peakY, width, circles, color, layer) {
-    const points = [];
-
-    const start = -width * 0.15;
-    const end = width * 1.15;
-
-    for (let x = start; x <= end; x += 12) {
-        const normalized = (x - peakX) / (width * 0.5);
-        const mountain = Math.max(0, 1 - Math.abs(normalized));
-
-        const noise = randomRange(random, -20, 20);
-
-        const y = baseY - mountain * (baseY - peakY) + noise;
-
-        points.push({ x, y });
-    }
-
-    for (let i = 0; i < points.length - 1; i++) {
-        const a = points[i];
-        const b = points[i + 1];
-
-        const dx = b.x - a.x;
-        const dy = b.y - a.y;
-        const distance = Math.sqrt(dx * dx + dy * dy);
-
-        const count = Math.ceil(distance / 7);
-
-        for (let j = 0; j < count; j++) {
-            const t = j / count;
-            const px = lerp(a.x, b.x, t);
-            const py = lerp(a.y, b.y, t);
-
-            for (let k = 0; k < randomInt(random, 1, 4); k++) {
-                const depth = random();
-
-                circles.push(
-                    circle(
-                        px + randomRange(random, -10, 10),
-                        py + depth * 70,
-                        randomRange(random, 4, 9),
-                        color,
-                        randomRange(random, 0.15, 0.45),
-                        layer
-                    )
-                );
-            }
-        }
-    }
-}
-
-function paintMountains(random, scene, palette, width, height, circles) {
-    const mountainColor = palette.colors[1];
-    const distantColor = palette.colors[0];
-
-    mountainPath(
-        random,
-        scene.horizon + 40,
-        width * 0.25,
-        height * 0.25,
-        width * 0.65,
-        circles,
-        distantColor,
-        2
-    );
-
-    mountainPath(
-        random,
-        scene.horizon + 65,
-        scene.focalX,
-        scene.horizon - height * 0.25,
-        width * 0.75,
-        circles,
-        mountainColor,
-        3
-    );
-
-    mountainPath(
-        random,
-        scene.horizon + 80,
-        width * 0.75,
-        scene.horizon - height * 0.12,
-        width * 0.7,
-        circles,
-        palette.colors[2],
-        4
-    );
-}
-
-function paintGround(random, scene, palette, width, height, circles) {
-    const startY = scene.horizon;
-
-    for (let y = startY; y < height; y += 11) {
-        const depth = (y - startY) / (height - startY);
-
-        for (let x = 0; x < width; x += 11) {
-            const perspective = 1 + depth * 2;
-
-            const radius = randomRange(random, 3, 7) * perspective;
-
-            const base = palette.colors[
-                randomInt(random, 1, 3)
-            ];
-
-            circles.push(
-                circle(
-                    x + randomRange(random, -7, 7),
-                    y + randomRange(random, -5, 5),
-                    radius,
-                    base,
-                    randomRange(random, 0.12, 0.35),
-                    3
-                )
+                randomRange(random, 0.08, 0.42),
+                layer
             );
         }
     }
 }
-
-function paintTrees(random, scene, palette, width, height, circles) {
-    const count = randomInt(random, 18, 40);
-
-    for (let i = 0; i < count; i++) {
-        const x = randomRange(random, 0, width);
-        const groundY = randomRange(
-            random,
-            scene.horizon + 20,
-            height * 0.95
-        );
-
-        const treeHeight = randomRange(random, height * 0.05, height * 0.18);
-        const trunkWidth = Math.max(3, treeHeight * 0.08);
-
-        const trunkColor = palette.colors[0];
-        const leafColor = palette.colors[randomInt(random, 1, 3)];
-
-        for (let y = groundY - treeHeight * 0.35; y < groundY; y += 7) {
-            circles.push(
-                circle(
-                    x + randomRange(random, -3, 3),
-                    y,
-                    trunkWidth,
-                    trunkColor,
-                    randomRange(random, 0.3, 0.7),
-                    5
-                )
+function paintGeometricForm(random, x, y, size, color, circles, layer) {
+    const type = randomInt(random, 0, 4);
+    if (type === 0) {
+        const points = randomInt(random, 5, 9);
+        for (let i = 0; i < points; i++) {
+            const angle = (i / points) * TAU + randomRange(random, -0.2, 0.2);
+            const radius = size * randomRange(random, 0.65, 1);
+            paintRibbon(
+                random,
+                {
+                    x,
+                    y
+                },
+                {
+                    x: x + Math.cos(angle) * radius,
+                    y: y + Math.sin(angle) * radius
+                },
+                color,
+                circles,
+                layer
             );
         }
-
-        const foliageCount = Math.floor(treeHeight * 2.2);
-
-        for (let j = 0; j < foliageCount; j++) {
-            const px = x + randomRange(random, -treeHeight * 0.28, treeHeight * 0.28);
-            const py = groundY - randomRange(random, treeHeight * 0.35, treeHeight);
-
-            const radius = randomRange(random, 5, 13);
-
-            circles.push(
-                circle(
-                    px,
-                    py,
-                    radius,
-                    leafColor,
-                    randomRange(random, 0.2, 0.55),
-                    6
-                )
+    } else if (type === 1) {
+        for (let i = 0; i < 1800; i++) {
+            const angle = randomRange(random, 0, TAU);
+            const d = randomRange(random, size * 0.65, size);
+            addCircle(
+                circles,
+                x + Math.cos(angle) * d,
+                y + Math.sin(angle) * d,
+                randomRange(random, 2, 7),
+                color,
+                randomRange(random, 0.1, 0.4),
+                layer
             );
         }
-    }
-}
-
-function paintOcean(random, scene, palette, width, height, circles) {
-    for (let y = scene.horizon; y < height; y += 8) {
-        const depth = (y - scene.horizon) / (height - scene.horizon);
-
-        for (let x = 0; x < width; x += 10) {
-            const wave = Math.sin(x * 0.025 + y * 0.018) * 7;
-
-            const color = palette.colors[
-                randomInt(random, 1, 3)
-            ];
-
-            circles.push(
-                circle(
-                    x + randomRange(random, -5, 5),
-                    y + wave + randomRange(random, -3, 3),
-                    randomRange(random, 3, 8) * (1 + depth),
-                    color,
-                    randomRange(random, 0.15, 0.4),
-                    4
-                )
-            );
-        }
-    }
-}
-
-function paintIsland(random, scene, palette, width, height, circles) {
-    const islandX = scene.focalX;
-    const islandY = scene.horizon + height * 0.2;
-
-    const islandWidth = width * randomRange(random, 0.18, 0.35);
-
-    for (let i = 0; i < islandWidth * 3; i++) {
-        const x = islandX + randomRange(random, -islandWidth / 2, islandWidth / 2);
-        const normalized = Math.abs(x - islandX) / (islandWidth / 2);
-
-        if (normalized > 1) continue;
-
-        const thickness = (1 - normalized * normalized) * height * 0.07;
-
-        circles.push(
-            circle(
-                x,
-                islandY + randomRange(random, -thickness, thickness),
-                randomRange(random, 5, 12),
-                palette.colors[0],
-                randomRange(random, 0.3, 0.7),
-                6
-            )
-        );
-    }
-
-    paintTrees(random, scene, palette, width, height, circles);
-}
-
-function paintCity(random, scene, palette, width, height, circles) {
-    const buildingCount = randomInt(random, 8, 18);
-
-    for (let i = 0; i < buildingCount; i++) {
-        const x = (i / buildingCount) * width + randomRange(random, -15, 15);
-        const buildingWidth = randomRange(random, 25, 75);
-        const buildingHeight = randomRange(random, height * 0.08, height * 0.35);
-
-        const bottom = scene.horizon + 20;
-
-        for (let y = bottom - buildingHeight; y < bottom; y += 9) {
-            for (let bx = x; bx < x + buildingWidth; bx += 9) {
-                circles.push(
-                    circle(
-                        bx + randomRange(random, -3, 3),
-                        y + randomRange(random, -3, 3),
-                        randomRange(random, 4, 8),
-                        palette.colors[0],
-                        randomRange(random, 0.25, 0.55),
-                        5
-                    )
-                );
-            }
-        }
-
-        const windowColor = palette.colors[4];
-
-        const windows = randomInt(random, 3, 12);
-
-        for (let w = 0; w < windows; w++) {
-            circles.push(
-                circle(
-                    randomRange(random, x + 5, x + buildingWidth - 5),
-                    randomRange(random, bottom - buildingHeight + 8, bottom - 8),
-                    randomRange(random, 2, 5),
-                    windowColor,
-                    randomRange(random, 0.35, 0.8),
-                    7
-                )
-            );
-        }
-    }
-}
-
-function paintRuin(random, scene, palette, width, height, circles) {
-    const x = scene.focalX;
-    const baseY = scene.horizon + height * 0.15;
-    const ruinWidth = width * 0.25;
-    const ruinHeight = height * 0.22;
-
-    for (let px = x - ruinWidth / 2; px < x + ruinWidth / 2; px += 8) {
-        const broken = random() > 0.12;
-
-        if (!broken) continue;
-
-        for (let py = baseY - ruinHeight; py < baseY; py += 9) {
-            if (random() < 0.18) continue;
-
-            circles.push(
-                circle(
-                    px + randomRange(random, -3, 3),
-                    py + randomRange(random, -3, 3),
-                    randomRange(random, 4, 8),
-                    palette.colors[0],
-                    randomRange(random, 0.25, 0.65),
-                    6
-                )
-            );
-        }
-    }
-}
-
-function paintFocalSubject(random, scene, palette, width, height, circles) {
-    const x = scene.focalX;
-    const y = scene.focalY;
-
-    const radius = randomRange(random, width * 0.045, width * 0.09);
-
-    const mainColor = palette.colors[4];
-
-    paintGlow(random, x, y, radius * 2.4, mainColor, circles, 7);
-
-    const count = Math.floor(radius * 9);
-
-    for (let i = 0; i < count; i++) {
+    } else if (type === 2) {
         const angle = randomRange(random, 0, TAU);
-        const distance = Math.sqrt(random()) * radius;
-
-        const light = distance / radius;
-
-        circles.push(
-            circle(
-                x + Math.cos(angle) * distance,
-                y + Math.sin(angle) * distance,
-                randomRange(random, 3, 8),
-                mainColor,
-                randomRange(random, 0.35, 0.9) * (1 - light * 0.4),
-                8
-            )
+        const length = size * randomRange(random, 1.3, 2.2);
+        paintRibbon(
+            random,
+            {
+                x: x - Math.cos(angle) * length * 0.5,
+                y: y - Math.sin(angle) * length * 0.5
+            },
+            {
+                x: x + Math.cos(angle) * length * 0.5,
+                y: y + Math.sin(angle) * length * 0.5
+            },
+            color,
+            circles,
+            layer
         );
-    }
-
-    for (let i = 0; i < count * 0.35; i++) {
-        circles.push(
-            circle(
-                x + randomRange(random, -radius, radius),
-                y + randomRange(random, -radius, radius),
-                randomRange(random, 2, 5),
-                palette.colors[3],
-                randomRange(random, 0.2, 0.6),
-                9
-            )
-        );
+    } else if (type === 3) {
+        const rings = randomInt(random, 3, 9);
+        for (let ring = 0; ring < rings; ring++) {
+            const ringRadius = size * (ring + 1) / rings;
+            for (let i = 0; i < ringRadius * 2; i++) {
+                const angle = i / (ringRadius * 2) * TAU;
+                addCircle(
+                    circles,
+                    x + Math.cos(angle) * ringRadius,
+                    y + Math.sin(angle) * ringRadius,
+                    randomRange(random, 2, 6),
+                    color,
+                    randomRange(random, 0.12, 0.4),
+                    layer
+                );
+            }
+        }
+    } else {
+        const count = Math.floor(size * 5);
+        for (let i = 0; i < count; i++) {
+            const t = random();
+            addCircle(
+                circles,
+                x + randomRange(random, -size, size),
+                y + randomRange(random, -size, size),
+                randomRange(random, 2, 8),
+                color,
+                randomRange(random, 0.08, 0.45),
+                layer
+            );
+        }
     }
 }
-
-function paintAtmosphere(random, scene, palette, width, height, circles) {
-    const count = Math.floor(width * height / 900);
-
-    for (let i = 0; i < count; i++) {
-        const x = randomRange(random, 0, width);
-        const y = randomRange(random, 0, height);
-
-        const color = palette.colors[randomInt(random, 2, 4)];
-
-        circles.push(
-            circle(
+function paintOrganicForm(random, x, y, size, color, circles, layer) {
+    const lobes = randomInt(random, 3, 9);
+    for (let i = 0; i < lobes; i++) {
+        const angle = (i / lobes) * TAU;
+        const distanceFromCenter = randomRange(random, size * 0.2, size * 0.65);
+        const px = x + Math.cos(angle) * distanceFromCenter;
+        const py = y + Math.sin(angle) * distanceFromCenter;
+        paintBlob(
+            random,
+            px,
+            py,
+            randomRange(random, size * 0.25, size * 0.6),
+            color,
+            circles,
+            layer,
+            randomRange(random, 0.2, 0.9)
+        );
+    }
+    paintBlob(
+        random,
+        x,
+        y,
+        size * 0.65,
+        color,
+        circles,
+        layer + 1,
+        0.7
+    );
+}
+function paintSecondaryForms(random, composition, palette, circles) {
+    const formCount = randomInt(random, 4, 11);
+    for (let i = 0; i < formCount; i++) {
+        let x;
+        let y;
+        if (chance(random, 0.6)) {
+            const angle = randomRange(random, 0, TAU);
+            const d = randomRange(random, 150, 650);
+            x = composition.focalX + Math.cos(angle) * d;
+            y = composition.focalY + Math.sin(angle) * d;
+        } else {
+            x = randomRange(random, 50, WIDTH - 50);
+            y = randomRange(random, 50, HEIGHT - 50);
+        }
+        if (distance(
+            { x, y },
+            { x: composition.focalX, y: composition.focalY }
+        ) < 110 && chance(random, 0.75)) {
+            continue;
+        }
+        const size = randomRange(random, 25, 170);
+        const color = palette.colors[randomInt(random, 0, 4)];
+        if (chance(random, 0.52)) {
+            paintOrganicForm(
+                random,
                 x,
                 y,
-                randomRange(random, 1, 4),
+                size,
                 color,
-                randomRange(random, 0.03, 0.14),
-                10
-            )
-        );
-    }
-}
-
-function generateTitle(random, scene) {
-    const first = [
-        "THE",
-        "A",
-        "BEYOND THE",
-        "UNDER THE",
-        "WHERE THE",
-        "WHEN THE",
-        "THE LAST",
-        "THE SILENT"
-    ];
-
-    const second = [
-        "SILENT",
-        "ENDLESS",
-        "HOLLOW",
-        "GOLDEN",
-        "VIOLET",
-        "FORGOTTEN",
-        "LONELY",
-        "ANCIENT",
-        "DREAMING",
-        "ETERNAL"
-    ];
-
-    const nouns = {
-        MOUNTAIN: ["MOUNTAIN", "PEAK", "VALLEY", "SUMMIT"],
-        FOREST: ["FOREST", "TREES", "WOOD", "WILDERNESS"],
-        OCEAN: ["SEA", "OCEAN", "TIDE", "HORIZON"],
-        DESERT: ["DESERT", "DUNE", "SANDS", "WASTELAND"],
-        VALLEY: ["VALLEY", "HOLLOW", "PASS", "LAND"],
-        RUINS: ["RUINS", "KINGDOM", "TEMPLE", "CITY"],
-        ISLAND: ["ISLAND", "SHORE", "SEA", "WORLD"],
-        "NIGHT CITY": ["CITY", "LIGHTS", "STREETS", "NIGHT"]
-    };
-
-    const nounList = nouns[scene.type];
-    const noun = nounList[randomInt(random, 0, nounList.length - 1)];
-
-    return `${first[randomInt(random, 0, first.length - 1)]} ${second[randomInt(random, 0, second.length - 1)]} ${noun}`;
-}
-
-function renderArtwork(seed) {
-    const random = createRandom(seed);
-
-    const width = 1200;
-    const height = 900;
-
-    canvas.width = width;
-    canvas.height = height;
-
-    ctx.clearRect(0, 0, width, height);
-
-    const palette = createPalette(random);
-    const composition = chooseComposition(random);
-    const scene = createScene(random, width, height);
-
-    const circles = [];
-
-    paintBackground(random, scene, palette, width, height, circles);
-
-    paintSunOrMoon(random, scene, palette, width, height, circles);
-
-    if (scene.type === "OCEAN") {
-        paintOcean(random, scene, palette, width, height, circles);
-    } else {
-        paintGround(random, scene, palette, width, height, circles);
-    }
-
-    paintMountains(random, scene, palette, width, height, circles);
-
-    if (scene.type === "FOREST") {
-        paintTrees(random, scene, palette, width, height, circles);
-    }
-
-    if (scene.type === "ISLAND") {
-        paintIsland(random, scene, palette, width, height, circles);
-    }
-
-    if (scene.type === "NIGHT CITY") {
-        paintCity(random, scene, palette, width, height, circles);
-    }
-
-    if (scene.type === "RUINS") {
-        paintRuin(random, scene, palette, width, height, circles);
-    }
-
-    if (scene.type === "DESERT") {
-        for (let i = 0; i < 3; i++) {
-            mountainPath(
-                random,
-                scene.horizon + i * 35,
-                randomRange(random, 0, width),
-                scene.horizon - randomRange(random, 30, 160),
-                width * randomRange(random, 0.4, 0.8),
                 circles,
-                palette.colors[i],
-                5
+                randomInt(random, 4, 7)
+            );
+        } else {
+            paintGeometricForm(
+                random,
+                x,
+                y,
+                size,
+                color,
+                circles,
+                randomInt(random, 4, 7)
             );
         }
     }
-
-    paintFocalSubject(random, scene, palette, width, height, circles);
-
-    paintAtmosphere(random, scene, palette, width, height, circles);
-
-    circles.sort((a, b) => a.layer - b.layer);
-
-    ctx.globalCompositeOperation = "source-over";
-
-    for (const item of circles) {
-        drawCircle(item);
+}
+function paintFocalStructure(random, composition, palette, circles) {
+    const x = composition.focalX;
+    const y = composition.focalY;
+    const size = randomRange(random, 130, 260);
+    const primary = palette.colors[randomInt(random, 1, 3)];
+    const accent = palette.colors[4];
+    const type = randomInt(random, 0, 5);
+    if (type === 0) {
+        paintOrganicForm(random, x, y, size, primary, circles, 8);
+        paintOrb(
+            random,
+            x + randomRange(random, -size * 0.25, size * 0.25),
+            y + randomRange(random, -size * 0.25, size * 0.25),
+            size * 0.22,
+            accent,
+            circles,
+            10
+        );
+    } else if (type === 1) {
+        paintGeometricForm(random, x, y, size, primary, circles, 8);
+        paintSpiral(random, { x, y }, size * 0.8, accent, circles, 10);
+    } else if (type === 2) {
+        paintSpiral(random, { x, y }, size * 1.2, primary, circles, 8);
+        paintOrb(
+            random,
+            x,
+            y,
+            size * 0.18,
+            accent,
+            circles,
+            11
+        );
+    } else if (type === 3) {
+        const angle = randomRange(random, 0, TAU);
+        for (let i = 0; i < 7; i++) {
+            const t = i / 6;
+            paintBlob(
+                random,
+                x + Math.cos(angle) * size * t * 1.7,
+                y + Math.sin(angle) * size * t * 1.7,
+                size * (0.45 - t * 0.25),
+                i % 2 === 0 ? primary : accent,
+                circles,
+                8 + i
+            );
+        }
+    } else if (type === 4) {
+        paintRibbon(
+            random,
+            {
+                x: x - size,
+                y: y + size * 0.4
+            },
+            {
+                x: x + size,
+                y: y - size * 0.4
+            },
+            primary,
+            circles,
+            8
+        );
+        paintRibbon(
+            random,
+            {
+                x: x - size * 0.3,
+                y: y - size
+            },
+            {
+                x: x + size * 0.3,
+                y: y + size
+            },
+            accent,
+            circles,
+            9
+        );
+    } else {
+        paintOrganicForm(random, x, y, size, primary, circles, 8);
+        paintGeometricForm(
+            random,
+            x + randomRange(random, -size * 0.25, size * 0.25),
+            y + randomRange(random, -size * 0.25, size * 0.25),
+            size * 0.55,
+            accent,
+            circles,
+            10
+        );
     }
-
-    const title = generateTitle(random, scene);
-
+}
+function paintDirectionalEnergy(random, composition, palette, circles) {
+    const count = randomInt(random, 3, 8);
+    for (let i = 0; i < count; i++) {
+        const angle =
+            Math.atan2(
+                composition.focalY - HEIGHT / 2,
+                composition.focalX - WIDTH / 2
+            ) +
+            randomRange(random, -1.2, 1.2);
+        const startDistance = randomRange(random, 300, 700);
+        const endDistance = randomRange(random, 80, 250);
+        const start = {
+            x: composition.focalX + Math.cos(angle) * startDistance,
+            y: composition.focalY + Math.sin(angle) * startDistance
+        };
+        const end = {
+            x: composition.focalX + Math.cos(angle) * endDistance,
+            y: composition.focalY + Math.sin(angle) * endDistance
+        };
+        paintRibbon(
+            random,
+            start,
+            end,
+            palette.colors[randomInt(random, 1, 4)],
+            circles,
+            5
+        );
+    }
+}
+function paintHighlights(random, composition, palette, circles) {
+    const count = randomInt(random, 2500, 6000);
+    for (let i = 0; i < count; i++) {
+        const angle = randomRange(random, 0, TAU);
+        const d = Math.pow(random(), 1.8) * 360;
+        const x = composition.focalX + Math.cos(angle) * d;
+        const y = composition.focalY + Math.sin(angle) * d;
+        if (x < 0 || x > WIDTH || y < 0 || y > HEIGHT) continue;
+        addCircle(
+            circles,
+            x,
+            y,
+            randomRange(random, 0.7, 3),
+            palette.colors[4],
+            randomRange(random, 0.08, 0.38),
+            12
+        );
+    }
+}
+function addLightGlow(random, x, y, radius, color, circles) {
+    const count = Math.floor(radius * 5);
+    for (let i = 0; i < count; i++) {
+        const angle = randomRange(random, 0, TAU);
+        const d = Math.pow(random(), 0.65) * radius;
+        addCircle(
+            circles,
+            x + Math.cos(angle) * d,
+            y + Math.sin(angle) * d,
+            randomRange(random, 2, 10),
+            color,
+            randomRange(random, 0.01, 0.07),
+            11
+        );
+    }
+}
+function paintLight(random, composition, palette, circles) {
+    const x =
+        composition.focalX +
+        randomRange(random, -350, 350);
+    const y =
+        composition.focalY +
+        randomRange(random, -350, 350);
+    const radius = randomRange(random, 120, 300);
+    addLightGlow(
+        random,
+        x,
+        y,
+        radius,
+        palette.colors[4],
+        circles
+    );
+}
+function addNegativeSpaceMask(random, composition, circles) {
+    if (composition.negativeSpace < 0.25) return;
+    const side = randomInt(random, 0, 3);
+    let xMin = 0;
+    let xMax = WIDTH;
+    let yMin = 0;
+    let yMax = HEIGHT;
+    if (side === 0) {
+        xMax = WIDTH * 0.3;
+    } else if (side === 1) {
+        xMin = WIDTH * 0.7;
+    } else if (side === 2) {
+        yMax = HEIGHT * 0.25;
+    } else {
+        yMin = HEIGHT * 0.75;
+    }
+    for (const item of circles) {
+        if (
+            item.x >= xMin &&
+            item.x <= xMax &&
+            item.y >= yMin &&
+            item.y <= yMax &&
+            item.layer >= 3
+        ) {
+            item.alpha *= randomRange(random, 0.05, 0.3);
+        }
+    }
+}
+function addSymmetryInfluence(random, composition, circles) {
+    if (composition.symmetry < 0.08) return;
+    const strength = composition.symmetry;
+    for (const item of circles) {
+        if (item.layer < 5) continue;
+        if (chance(random, strength * 0.16)) {
+            const mirroredX = WIDTH - item.x;
+            addCircle(
+                circles,
+                mirroredX,
+                item.y + randomRange(random, -30, 30),
+                item.radius * randomRange(random, 0.7, 1.1),
+                item.color,
+                item.alpha * strength,
+                Math.max(4, item.layer - 1)
+            );
+        }
+    }
+}
+function createTitle(random, composition, palette) {
+    const prefixes = [
+        "THE",
+        "A",
+        "BEYOND",
+        "WITHIN",
+        "UNDER",
+        "ABOVE",
+        "BETWEEN",
+        "AFTER",
+        "BEFORE",
+        "WHERE"
+    ];
+    const adjectives = [
+        "SILENT",
+        "ETERNAL",
+        "HOLLOW",
+        "LUMINOUS",
+        "FORGOTTEN",
+        "INFINITE",
+        "CRIMSON",
+        "VIOLET",
+        "GOLDEN",
+        "BROKEN",
+        "DREAMING",
+        "RESTLESS",
+        "ANCIENT",
+        "WEIGHTLESS",
+        "OTHER"
+    ];
+    const nouns = [
+        "MACHINE",
+        "GARDEN",
+        "HORIZON",
+        "MEMORY",
+        "OCEAN",
+        "CATHEDRAL",
+        "ECHO",
+        "WORLD",
+        "FRAGMENT",
+        "VOID",
+        "ORBIT",
+        "HEART",
+        "MONUMENT",
+        "DREAM",
+        "SIGNAL",
+        "SHADOW",
+        "THRESHOLD",
+        "STAR",
+        "RIVER",
+        "SILENCE"
+    ];
+    const structures = [
+        `${prefixes[randomInt(random, 0, prefixes.length - 1)]} ${adjectives[randomInt(random, 0, adjectives.length - 1)]} ${nouns[randomInt(random, 0, nouns.length - 1)]}`,
+        `${adjectives[randomInt(random, 0, adjectives.length - 1)]} ${nouns[randomInt(random, 0, nouns.length - 1)]}`,
+        `${nouns[randomInt(random, 0, nouns.length - 1)]} OF ${adjectives[randomInt(random, 0, adjectives.length - 1)]}`,
+        `${prefixes[randomInt(random, 0, prefixes.length - 1)]} ${nouns[randomInt(random, 0, nouns.length - 1)]}`,
+        `${adjectives[randomInt(random, 0, adjectives.length - 1)]} ${nouns[randomInt(random, 0, nouns.length - 1)]} ${nouns[randomInt(random, 0, nouns.length - 1)]}`
+    ];
+    return structures[randomInt(random, 0, structures.length - 1)];
+}
+function render(seed) {
+    const random = createRandom(seed);
+    canvas.width = WIDTH;
+    canvas.height = HEIGHT;
+    const palette = makePalette(random);
+    const composition = createComposition(random);
+    const circles = [];
+    ctx.fillStyle = rgbString(palette.background, 1);
+    ctx.fillRect(0, 0, WIDTH, HEIGHT);
+    paintGradient(random, palette, circles);
+    paintAtmosphere(random, palette, circles);
+    paintLight(
+        random,
+        composition,
+        palette,
+        circles
+    );
+    paintSecondaryForms(
+        random,
+        composition,
+        palette,
+        circles
+    );
+    paintDirectionalEnergy(
+        random,
+        composition,
+        palette,
+        circles
+    );
+    paintFocalStructure(
+        random,
+        composition,
+        palette,
+        circles
+    );
+    paintHighlights(
+        random,
+        composition,
+        palette,
+        circles
+    );
+    addNegativeSpaceMask(
+        random,
+        composition,
+        circles
+    );
+    addSymmetryInfluence(
+        random,
+        composition,
+        circles
+    );
+    circles.sort((a, b) => a.layer - b.layer);
+    for (const item of circles) {
+        ctx.beginPath();
+        ctx.arc(
+            item.x,
+            item.y,
+            item.radius,
+            0,
+            TAU
+        );
+        ctx.fillStyle = rgbString(
+            item.color,
+            item.alpha
+        );
+        ctx.fill();
+    }
+    const title = createTitle(
+        random,
+        composition,
+        palette
+    );
     currentArtwork = {
         seed,
         title,
-        palette,
         composition,
-        scene,
+        palette,
         circleCount: circles.length
     };
-
     titleElement.textContent = title;
     seedElement.textContent = seed;
-    compositionElement.textContent = composition;
+    compositionElement.textContent = composition.mode;
     paletteElement.textContent = palette.name;
     circlesElement.textContent = circles.length.toLocaleString();
 }
-
 function generate() {
-    const seed = randomSeed();
-    renderArtwork(seed);
+    render(randomSeed());
 }
-
 function saveArtwork() {
     if (!currentArtwork) return;
-
-    const link = document.createElement("a");
-
     const safeTitle = currentArtwork.title
         .toLowerCase()
         .replace(/[^a-z0-9]+/g, "-")
         .replace(/^-|-$/g, "");
-
-    link.download = `${safeTitle}-${currentArtwork.seed}.png`;
+    const link = document.createElement("a");
+    link.download =
+        `${safeTitle}-${currentArtwork.seed}.png`;
     link.href = canvas.toDataURL("image/png");
-
     link.click();
 }
-
-document.getElementById("generate").addEventListener("click", generate);
-document.getElementById("save").addEventListener("click", saveArtwork);
-
-generate();
+document
+    .getElementById("generate")
+    .addEventListener("click", generate);
+document
+    .getElementById("save")
+    .addEventListener("click", saveArtwork);
+render(randomSeed());
