@@ -1,4 +1,3 @@
-
 const canvas = document.getElementById("canvas");
 const ctx = canvas.getContext("2d", { alpha: false });
 
@@ -12,51 +11,57 @@ const saveBtn = document.getElementById("save");
 
 const WIDTH = 1200;
 const HEIGHT = 900;
+const TAU = Math.PI * 2;
 
 canvas.width = WIDTH;
 canvas.height = HEIGHT;
 
-const TAU = Math.PI * 2;
-
-let activeSeed = 0;
+let seed = 0;
+let rng;
 let painting = false;
-let paintTimer = null;
+let generationToken = 0;
 
-const state = {
-    rng: null,
+const artist = {
     idea: null,
-    scene: null,
+    composition: null,
     palette: null,
-    paint: [],
-    strokes: [],
-    stage: 0,
-    stageProgress: 0,
-    totalCircles: 0
+    scene: null,
+    pigment: [],
+    visible: 0,
+    phase: 0
 };
 
-function mulberry32(seed) {
+/* =========================================================
+   RANDOM
+========================================================= */
+
+function randomSeed() {
+    return Math.floor(Math.random() * 2147483647);
+}
+
+function mulberry32(a) {
     return function () {
-        let t = seed += 0x6D2B79F5;
+        let t = a += 0x6D2B79F5;
         t = Math.imul(t ^ t >>> 15, t | 1);
         t ^= t + Math.imul(t ^ t >>> 7, t | 61);
         return ((t ^ t >>> 14) >>> 0) / 4294967296;
     };
 }
 
-function randomSeed() {
-    return Math.floor(Math.random() * 2147483647);
+function rand(a = 0, b = 1) {
+    return a + rng() * (b - a);
 }
 
-function rand(min = 0, max = 1) {
-    return min + state.rng() * (max - min);
+function int(a, b) {
+    return Math.floor(rand(a, b + 1));
 }
 
-function chance(p) {
-    return state.rng() < p;
+function chance(v) {
+    return rng() < v;
 }
 
-function pick(arr) {
-    return arr[Math.floor(state.rng() * arr.length)];
+function pick(a) {
+    return a[Math.floor(rng() * a.length)];
 }
 
 function clamp(v, a = 0, b = 1) {
@@ -71,285 +76,24 @@ function smooth(t) {
     return t * t * (3 - 2 * t);
 }
 
-function dist(a, b) {
+function distance(a, b) {
     return Math.hypot(a.x - b.x, a.y - b.y);
 }
 
-function hexToRgb(hex) {
-    const n = parseInt(hex.replace("#", ""), 16);
+function point(x, y) {
+    return { x, y };
+}
+
+function offsetPoint(p, x, y) {
     return {
-        r: (n >> 16) & 255,
-        g: (n >> 8) & 255,
-        b: n & 255
+        x: p.x + x,
+        y: p.y + y
     };
-}
-
-function rgbToHex(r, g, b) {
-    return "#" +
-        [r, g, b]
-            .map(v => Math.round(clamp(v, 0, 255)).toString(16).padStart(2, "0"))
-            .join("");
-}
-
-function mixColor(a, b, t) {
-    return {
-        r: lerp(a.r, b.r, t),
-        g: lerp(a.g, b.g, t),
-        b: lerp(a.b, b.b, t)
-    };
-}
-
-function adjustColor(c, amount) {
-    return {
-        r: clamp(c.r + amount, 0, 255),
-        g: clamp(c.g + amount, 0, 255),
-        b: clamp(c.b + amount, 0, 255)
-    };
-}
-
-function rgba(c, alpha = 1) {
-    return `rgba(${Math.round(c.r)},${Math.round(c.g)},${Math.round(c.b)},${alpha})`;
-}
-
-function polar(x, y, angle, radius) {
-    return {
-        x: x + Math.cos(angle) * radius,
-        y: y + Math.sin(angle) * radius
-    };
-}
-
-function normalize(vx, vy) {
-    const d = Math.hypot(vx, vy) || 1;
-    return { x: vx / d, y: vy / d };
-}
-
-function rotatePoint(p, angle, cx, cy) {
-    const c = Math.cos(angle);
-    const s = Math.sin(angle);
-    const x = p.x - cx;
-    const y = p.y - cy;
-
-    return {
-        x: cx + x * c - y * s,
-        y: cy + x * s + y * c
-    };
-}
-
-function noise1D(x, seedOffset = 0) {
-    const old = state.rng;
-    const n = Math.sin(x * 127.1 + seedOffset * 311.7 + activeSeed * 0.0001) * 43758.5453;
-    return n - Math.floor(n);
-}
-
-function smoothNoise(x, scale = 1, seedOffset = 0) {
-    const p = x / scale;
-    const i = Math.floor(p);
-    const f = p - i;
-
-    const a = noise1D(i, seedOffset);
-    const b = noise1D(i + 1, seedOffset);
-
-    return lerp(a, b, smooth(f));
-}
-
-function fbm(x, octaves = 5, scale = 100, offset = 0) {
-    let value = 0;
-    let amplitude = 0.5;
-    let frequency = 1;
-
-    for (let i = 0; i < octaves; i++) {
-        value += smoothNoise(x * frequency, scale, offset + i * 19.7) * amplitude;
-        frequency *= 2;
-        amplitude *= 0.5;
-    }
-
-    return value;
-}
-
-function weightedChoice(weights) {
-    const total = weights.reduce((a, b) => a + b.weight, 0);
-    let value = rand(0, total);
-
-    for (const item of weights) {
-        value -= item.weight;
-        if (value <= 0) return item.value;
-    }
-
-    return weights[weights.length - 1].value;
 }
 
 /* =========================================================
-   IDEA ENGINE
+   COLOUR MATH
 ========================================================= */
-
-function generateIdea() {
-    const idea = {
-        representation: rand(),
-        abstraction: rand(),
-        organicity: rand(),
-        geometricity: rand(),
-        symmetry: rand(),
-        branching: rand(),
-        enclosure: rand(),
-        verticality: rand(),
-        horizontality: rand(),
-        repetition: rand(),
-        depth: rand(),
-        atmosphere: rand(),
-        complexity: rand(),
-        surfaceContinuity: rand(),
-        volume: rand(),
-        scaleVariation: rand(),
-        darkness: rand(),
-        quietness: rand(),
-        tension: rand(),
-        colorTemperature: rand(),
-        perspective: rand()
-    };
-
-    if (idea.representation > 0.72) {
-        idea.complexity = Math.max(idea.complexity, 0.65);
-    }
-
-    if (idea.organicity > 0.7) {
-        idea.branching = Math.max(idea.branching, 0.55);
-    }
-
-    if (idea.depth > 0.7) {
-        idea.perspective = Math.max(idea.perspective, 0.65);
-    }
-
-    return idea;
-}
-
-function inferVisualDirection(idea) {
-    const directions = [];
-
-    if (idea.horizontality > 0.65 && idea.depth > 0.5) {
-        directions.push("landscape");
-    }
-
-    if (idea.symmetry > 0.68 && idea.enclosure > 0.45) {
-        directions.push("figure");
-    }
-
-    if (idea.branching > 0.68 && idea.organicity > 0.58) {
-        directions.push("organic_structure");
-    }
-
-    if (idea.geometricity > 0.7) {
-        directions.push("constructed_form");
-    }
-
-    if (idea.abstraction > 0.72) {
-        directions.push("abstract");
-    }
-
-    if (idea.surfaceContinuity > 0.7 && idea.depth > 0.5) {
-        directions.push("environment");
-    }
-
-    if (!directions.length) {
-        directions.push(
-            weightedChoice([
-                { value: "landscape", weight: 2 },
-                { value: "organic_structure", weight: 2 },
-                { value: "constructed_form", weight: 2 },
-                { value: "abstract", weight: 1 }
-            ])
-        );
-    }
-
-    return pick(directions);
-}
-
-/* =========================================================
-   PALETTE ENGINE
-========================================================= */
-
-function makePalette(idea) {
-    const hue = rand(0, 360);
-    const spread = rand(20, 75);
-    const light = lerp(38, 62, 1 - idea.darkness);
-
-    const schemes = [
-        "analogous",
-        "complementary",
-        "split",
-        "triadic",
-        "earth",
-        "monochrome"
-    ];
-
-    const scheme = pick(schemes);
-
-    let hues;
-
-    if (scheme === "analogous") {
-        hues = [
-            hue,
-            hue + spread * 0.45,
-            hue - spread * 0.35,
-            hue + spread
-        ];
-    } else if (scheme === "complementary") {
-        hues = [
-            hue,
-            hue + 180,
-            hue + rand(-25, 25),
-            hue + 180 + rand(-20, 20)
-        ];
-    } else if (scheme === "split") {
-        hues = [
-            hue,
-            hue + 150,
-            hue + 210,
-            hue + rand(-15, 15)
-        ];
-    } else if (scheme === "triadic") {
-        hues = [
-            hue,
-            hue + 120,
-            hue + 240,
-            hue + rand(-20, 20)
-        ];
-    } else if (scheme === "earth") {
-        hues = [
-            rand(20, 50),
-            rand(35, 75),
-            rand(80, 125),
-            rand(5, 25)
-        ];
-    } else {
-        hues = [
-            hue,
-            hue + rand(-8, 8),
-            hue + rand(-15, 15),
-            hue + rand(-25, 25)
-        ];
-    }
-
-    const colors = hues.map((h, i) => {
-        const saturation = lerp(20, 78, rand() * 0.8 + 0.2);
-        const l = clamp(light + rand(-18, 18) - i * 3, 15, 82);
-
-        return hslToRgb((h % 360 + 360) % 360, saturation, l);
-    });
-
-    const sky = colors[0];
-    const shadow = adjustColor(colors[1], -35);
-    const lightColor = adjustColor(colors[2], 35);
-    const accent = colors[3];
-
-    return {
-        scheme,
-        colors,
-        sky,
-        shadow,
-        light: lightColor,
-        accent
-    };
-}
 
 function hslToRgb(h, s, l) {
     s /= 100;
@@ -359,7 +103,8 @@ function hslToRgb(h, s, l) {
     const a = s * Math.min(l, 1 - l);
 
     const f = n =>
-        l - a * Math.max(
+        l - a *
+        Math.max(
             -1,
             Math.min(
                 k(n) - 3,
@@ -374,187 +119,871 @@ function hslToRgb(h, s, l) {
     };
 }
 
+function rgbToHsl(c) {
+    let r = c.r / 255;
+    let g = c.g / 255;
+    let b = c.b / 255;
+
+    const max = Math.max(r, g, b);
+    const min = Math.min(r, g, b);
+    const d = max - min;
+
+    let h = 0;
+    let s = 0;
+    const l = (max + min) / 2;
+
+    if (d !== 0) {
+        s = d / (1 - Math.abs(2 * l - 1));
+
+        if (max === r) {
+            h = 60 * (((g - b) / d) % 6);
+        } else if (max === g) {
+            h = 60 * ((b - r) / d + 2);
+        } else {
+            h = 60 * ((r - g) / d + 4);
+        }
+    }
+
+    if (h < 0) h += 360;
+
+    return {
+        h,
+        s: s * 100,
+        l: l * 100
+    };
+}
+
+function mixColor(a, b, t) {
+    return {
+        r: lerp(a.r, b.r, t),
+        g: lerp(a.g, b.g, t),
+        b: lerp(a.b, b.b, t)
+    };
+}
+
+function shiftColor(c, hueShift = 0, satMul = 1, lightShift = 0) {
+    const h = rgbToHsl(c);
+
+    return hslToRgb(
+        (h.h + hueShift + 360) % 360,
+        clamp(h.s * satMul, 0, 100),
+        clamp(h.l + lightShift, 0, 100)
+    );
+}
+
+function rgba(c, alpha = 1) {
+    return `rgba(${Math.round(c.r)},${Math.round(c.g)},${Math.round(c.b)},${alpha})`;
+}
+
+function luminance(c) {
+    return (
+        c.r * 0.2126 +
+        c.g * 0.7152 +
+        c.b * 0.0722
+    ) / 255;
+}
+
+function contrast(a, b) {
+    return Math.abs(
+        luminance(a) -
+        luminance(b)
+    );
+}
+
 /* =========================================================
-   SCENE / COMPOSITION ENGINE
+   NOISE
 ========================================================= */
 
-function createScene(idea) {
-    const scene = {
-        horizon: lerp(HEIGHT * 0.28, HEIGHT * 0.72, rand()),
-        focal: {
-            x: lerp(WIDTH * 0.22, WIDTH * 0.78, rand()),
-            y: lerp(HEIGHT * 0.25, HEIGHT * 0.65, rand())
-        },
-        objects: [],
-        mountains: [],
-        trees: [],
-        clouds: [],
-        terrain: [],
-        strokes: [],
-        lights: [],
-        geometry: []
+function hash(x) {
+    const s =
+        Math.sin(
+            x * 127.1 +
+            seed * 0.000013
+        ) * 43758.5453123;
+
+    return s - Math.floor(s);
+}
+
+function noise(x, scale = 1, offset = 0) {
+    const p = x / scale;
+    const i = Math.floor(p);
+    const f = smooth(p - i);
+
+    return lerp(
+        hash(i + offset * 31.7),
+        hash(i + 1 + offset * 31.7),
+        f
+    );
+}
+
+function fbm(
+    x,
+    octaves = 5,
+    scale = 100,
+    offset = 0
+) {
+    let value = 0;
+    let amplitude = 0.5;
+    let frequency = 1;
+
+    for (let i = 0; i < octaves; i++) {
+        value +=
+            noise(
+                x * frequency,
+                scale,
+                offset + i * 17.3
+            ) * amplitude;
+
+        amplitude *= 0.5;
+        frequency *= 2;
+    }
+
+    return value;
+}
+
+/* =========================================================
+   IDEA ENGINE
+========================================================= */
+
+function generateIdea() {
+    const i = {
+        realism: rand(),
+        abstraction: rand(),
+        organic: rand(),
+        geometric: rand(),
+        symmetry: rand(),
+        branching: rand(),
+        repetition: rand(),
+        verticality: rand(),
+        horizontality: rand(),
+        depth: rand(),
+        atmosphere: rand(),
+        complexity: rand(),
+        density: rand(),
+        enclosure: rand(),
+        scale: rand(),
+        tension: rand(),
+        quietness: rand(),
+        darkness: rand(),
+        warmth: rand(),
+        perspective: rand()
     };
 
-    const direction = inferVisualDirection(idea);
-    scene.direction = direction;
+    const candidates = [];
 
-    const thirds = [
-        WIDTH / 3,
-        WIDTH * 2 / 3
-    ];
-
-    if (chance(0.7)) {
-        scene.focal.x = thirds[chance(0.5) ? 0 : 1] + rand(-100, 100);
+    if (
+        i.horizontality > 0.55 &&
+        i.depth > 0.4
+    ) {
+        candidates.push("landscape");
     }
 
-    if (direction === "landscape" || direction === "environment") {
-        buildLandscape(scene, idea);
+    if (
+        i.geometric > 0.58 &&
+        i.enclosure > 0.4
+    ) {
+        candidates.push("architecture");
     }
 
-    if (direction === "organic_structure") {
-        buildOrganicScene(scene, idea);
+    if (
+        i.organic > 0.55 &&
+        i.branching > 0.5
+    ) {
+        candidates.push("organic");
     }
 
-    if (direction === "constructed_form") {
-        buildConstructedScene(scene, idea);
+    if (
+        i.symmetry > 0.67 &&
+        i.realism > 0.45
+    ) {
+        candidates.push("figure");
     }
 
-    if (direction === "figure") {
-        buildFigureScene(scene, idea);
+    if (
+        i.abstraction > 0.7
+    ) {
+        candidates.push("abstract");
     }
 
-    if (direction === "abstract") {
-        buildAbstractScene(scene, idea);
+    if (!candidates.length) {
+        candidates.push(
+            pick([
+                "landscape",
+                "architecture",
+                "organic",
+                "figure",
+                "abstract"
+            ])
+        );
     }
 
-    addAtmosphere(scene, idea);
-    addLights(scene, idea);
+    i.direction = pick(candidates);
 
-    return scene;
+    return i;
 }
 
 /* =========================================================
-   LANDSCAPE ENGINE
+   COMPOSITION DIRECTOR
 ========================================================= */
 
-function mountainProfile(baseY, amplitude, offset, roughness) {
-    const points = [];
-    const count = 80;
+function createComposition(idea) {
+    const horizontalBias =
+        idea.horizontality;
 
-    for (let i = 0; i <= count; i++) {
-        const x = i / count;
-        const broad = fbm(x * 900 + offset, 5, 180, offset);
-        const sharp = fbm(x * 900 + offset * 2, 4, 55, offset + 30);
+    const verticalBias =
+        idea.verticality;
 
-        const mountain =
-            Math.pow(broad, 1.2) * amplitude +
-            sharp * amplitude * roughness;
+    const horizon =
+        lerp(
+            HEIGHT * 0.25,
+            HEIGHT * 0.72,
+            rand()
+        );
 
-        points.push({
-            x: x * WIDTH,
-            y: baseY - mountain
-        });
+    const thirdsX = [
+        WIDTH * 0.333,
+        WIDTH * 0.667
+    ];
+
+    const thirdsY = [
+        HEIGHT * 0.333,
+        HEIGHT * 0.667
+    ];
+
+    let focalX =
+        pick(thirdsX) +
+        rand(-100, 100);
+
+    let focalY =
+        pick(thirdsY) +
+        rand(-100, 100);
+
+    if (horizontalBias > verticalBias) {
+        focalY =
+            lerp(
+                horizon,
+                HEIGHT * 0.72,
+                rand()
+            );
     }
 
-    return points;
+    return {
+        horizon,
+        focalX: clamp(focalX, 100, WIDTH - 100),
+        focalY: clamp(focalY, 100, HEIGHT - 100),
+
+        primaryMass: {
+            x: focalX,
+            y: focalY,
+            scale: lerp(0.7, 1.5, idea.scale)
+        },
+
+        secondaryMasses: int(
+            1,
+            3 + Math.floor(
+                idea.complexity * 2
+            )
+        ),
+
+        negativeSpace:
+            lerp(
+                0.15,
+                0.55,
+                idea.quietness
+            ),
+
+        depthLayers:
+            int(
+                3,
+                5 + Math.floor(
+                    idea.depth * 5
+                )
+            ),
+
+        perspective:
+            lerp(
+                0.15,
+                1,
+                idea.perspective
+            )
+    };
 }
 
-function buildLandscape(scene, idea) {
-    const mountainCount = Math.floor(2 + idea.complexity * 4);
+/* =========================================================
+   COLOUR DIRECTOR
+========================================================= */
 
-    for (let i = 0; i < mountainCount; i++) {
-        const depth = i / Math.max(1, mountainCount - 1);
+function createPalette(idea) {
+    const schemes = [
+        "analogous",
+        "complementary",
+        "split-complementary",
+        "triadic",
+        "tetradic",
+        "monochromatic",
+        "warm-cool"
+    ];
 
-        scene.mountains.push({
-            points: mountainProfile(
-                scene.horizon + lerp(40, 180, depth),
-                lerp(80, 310, 1 - depth) * rand(0.75, 1.25),
-                rand(0, 1000),
-                rand(0.25, 0.9)
-            ),
-            depth,
-            offset: rand(-100, 100)
+    const scheme = pick(schemes);
+
+    let baseHue;
+
+    if (idea.warmth > 0.7) {
+        baseHue = rand(5, 70);
+    } else if (idea.warmth < 0.3) {
+        baseHue = rand(170, 260);
+    } else {
+        baseHue = rand(0, 360);
+    }
+
+    let hueOffsets;
+
+    if (scheme === "analogous") {
+        hueOffsets = [
+            0,
+            rand(20, 38),
+            -rand(15, 32),
+            rand(45, 70)
+        ];
+    }
+
+    if (scheme === "complementary") {
+        hueOffsets = [
+            0,
+            180,
+            rand(-25, 25),
+            180 + rand(-25, 25)
+        ];
+    }
+
+    if (scheme === "split-complementary") {
+        hueOffsets = [
+            0,
+            150,
+            210,
+            rand(-20, 20)
+        ];
+    }
+
+    if (scheme === "triadic") {
+        hueOffsets = [
+            0,
+            120,
+            240,
+            rand(-18, 18)
+        ];
+    }
+
+    if (scheme === "tetradic") {
+        hueOffsets = [
+            0,
+            90,
+            180,
+            270
+        ];
+    }
+
+    if (scheme === "monochromatic") {
+        hueOffsets = [
+            0,
+            rand(-8, 8),
+            rand(-15, 15),
+            rand(-22, 22)
+        ];
+    }
+
+    if (scheme === "warm-cool") {
+        hueOffsets = [
+            0,
+            180,
+            rand(-30, 30),
+            180 + rand(-30, 30)
+        ];
+    }
+
+    const dominantHue =
+        (baseHue + hueOffsets[0] + 360) % 360;
+
+    const secondaryHue =
+        (baseHue + hueOffsets[1] + 360) % 360;
+
+    const accentHue =
+        (baseHue + hueOffsets[2] + 360) % 360;
+
+    const highlightHue =
+        (baseHue + hueOffsets[3] + 360) % 360;
+
+    const dominant = hslToRgb(
+        dominantHue,
+        rand(35, 65),
+        rand(35, 55)
+    );
+
+    const secondary = hslToRgb(
+        secondaryHue,
+        rand(30, 70),
+        rand(30, 58)
+    );
+
+    const accent = hslToRgb(
+        accentHue,
+        rand(50, 90),
+        rand(38, 65)
+    );
+
+    const highlight = hslToRgb(
+        highlightHue,
+        rand(20, 70),
+        rand(68, 88)
+    );
+
+    const shadow = hslToRgb(
+        dominantHue + rand(-20, 20),
+        rand(20, 60),
+        rand(10, 25)
+    );
+
+    const deepShadow = hslToRgb(
+        dominantHue + rand(-25, 25),
+        rand(15, 50),
+        rand(4, 13)
+    );
+
+    const atmosphere = mixColor(
+        dominant,
+        secondary,
+        0.5
+    );
+
+    return {
+        scheme,
+        dominant,
+        secondary,
+        accent,
+        highlight,
+        shadow,
+        deepShadow,
+        atmosphere,
+
+        roles: {
+            dominant: 0.55,
+            secondary: 0.25,
+            accent: 0.10,
+            highlight: 0.05,
+            shadow: 0.05
+        }
+    };
+}
+
+/* =========================================================
+   SCENE GRAPH
+========================================================= */
+
+function createScene() {
+    return {
+        background: [],
+        masses: [],
+        structures: [],
+        terrain: [],
+        vegetation: [],
+        clouds: [],
+        figures: [],
+        strokes: [],
+        details: [],
+        lights: [],
+        depth: []
+    };
+}
+
+function addMass(scene, mass) {
+    scene.masses.push(mass);
+}
+
+function addStructure(scene, structure) {
+    scene.structures.push(structure);
+}
+
+/* =========================================================
+   GENERAL STRUCTURE GENERATOR
+========================================================= */
+
+function createStructure(
+    x,
+    y,
+    width,
+    height,
+    depth,
+    levels,
+    rotation = 0
+) {
+    const structure = {
+        x,
+        y,
+        width,
+        height,
+        depth,
+        rotation,
+        levels: [],
+        supports: [],
+        openings: [],
+        attachments: []
+    };
+
+    const levelHeight =
+        height / levels;
+
+    for (let i = 0; i < levels; i++) {
+        const t = i / Math.max(1, levels - 1);
+
+        const levelWidth =
+            width *
+            lerp(
+                rand(0.7, 1.05),
+                rand(0.55, 0.95),
+                t
+            );
+
+        const level = {
+            x:
+                x +
+                rand(-width * 0.08, width * 0.08),
+
+            y:
+                y +
+                height -
+                i * levelHeight,
+
+            width: levelWidth,
+
+            height:
+                levelHeight *
+                rand(0.65, 1.05),
+
+            rotation:
+                rotation +
+                rand(-0.08, 0.08)
+        };
+
+        structure.levels.push(level);
+
+        if (i > 0) {
+            const lower =
+                structure.levels[i - 1];
+
+            structure.supports.push({
+                a: {
+                    x: lower.x - lower.width * 0.3,
+                    y: lower.y
+                },
+
+                b: {
+                    x: level.x - level.width * 0.3,
+                    y: level.y + level.height
+                },
+
+                width:
+                    rand(5, 16)
+            });
+        }
+    }
+
+    const openingCount =
+        Math.floor(
+            1 +
+            rand() * levels * 2
+        );
+
+    for (let i = 0; i < openingCount; i++) {
+        const level =
+            pick(structure.levels);
+
+        structure.openings.push({
+            x:
+                level.x +
+                rand(
+                    -level.width * 0.3,
+                    level.width * 0.3
+                ),
+
+            y:
+                level.y -
+                rand(5, level.height * 0.65),
+
+            width:
+                rand(
+                    8,
+                    Math.max(
+                        10,
+                        level.width * 0.18
+                    )
+                ),
+
+            height:
+                rand(
+                    12,
+                    Math.max(
+                        16,
+                        level.height * 0.6
+                    )
+                )
         });
     }
 
-    const treeCount = Math.floor(
-        8 +
-        idea.complexity * 35 +
-        idea.organicity * 20
-    );
+    const attachments =
+        Math.floor(
+            rand(1, 4)
+        );
+
+    for (let i = 0; i < attachments; i++) {
+        const level =
+            pick(structure.levels);
+
+        structure.attachments.push({
+            x:
+                level.x +
+                rand(
+                    -level.width * 0.5,
+                    level.width * 0.5
+                ),
+
+            y:
+                level.y +
+                rand(
+                    -level.height * 0.2,
+                    level.height
+                ),
+
+            length:
+                rand(
+                    15,
+                    width * 0.45
+                ),
+
+            angle:
+                rand(-Math.PI, Math.PI),
+
+            width:
+                rand(3, 14)
+        });
+    }
+
+    return structure;
+}
+
+/* =========================================================
+   LANDSCAPE CONSTRUCTION
+========================================================= */
+
+function buildLandscape(scene, idea, composition) {
+    const mountainLayers =
+        int(
+            3,
+            5 + Math.floor(
+                idea.depth * 3
+            )
+        );
+
+    for (let layer = 0; layer < mountainLayers; layer++) {
+        const depth =
+            layer /
+            Math.max(
+                1,
+                mountainLayers - 1
+            );
+
+        const baseY =
+            composition.horizon +
+            lerp(
+                0,
+                160,
+                depth
+            );
+
+        const points = [];
+
+        const segments = 100;
+
+        for (let i = 0; i <= segments; i++) {
+            const t = i / segments;
+
+            const broad =
+                fbm(
+                    t * 900 +
+                    layer * 140,
+                    5,
+                    180,
+                    layer * 17
+                );
+
+            const sharp =
+                fbm(
+                    t * 900 +
+                    layer * 80,
+                    4,
+                    55,
+                    layer * 31
+                );
+
+            const ridge =
+                Math.pow(
+                    broad,
+                    lerp(
+                        0.7,
+                        1.5,
+                        idea.geometric
+                    )
+                );
+
+            const height =
+                lerp(
+                    70,
+                    300,
+                    1 - depth
+                ) *
+                (
+                    ridge * 0.72 +
+                    sharp * 0.28
+                );
+
+            points.push({
+                x: t * WIDTH,
+                y: baseY - height
+            });
+        }
+
+        scene.masses.push({
+            type: "mountain",
+            points,
+            depth
+        });
+    }
+
+    createTerrain(scene, composition, idea);
+
+    const treeCount =
+        int(
+            8,
+            18 +
+            Math.floor(
+                idea.complexity * 35
+            )
+        );
 
     for (let i = 0; i < treeCount; i++) {
-        const x = rand(-50, WIDTH + 50);
+        const x =
+            rand(-50, WIDTH + 50);
 
-        const ground =
-            scene.horizon +
-            (HEIGHT - scene.horizon) *
-            Math.pow(rand(), 1.6);
+        const y =
+            lerp(
+                composition.horizon + 100,
+                HEIGHT + 40,
+                Math.pow(
+                    rand(),
+                    1.5
+                )
+            );
 
-        const scale = lerp(0.35, 1.5, rand());
+        const scale =
+            lerp(
+                0.25,
+                1.45,
+                rand()
+            );
 
-        scene.trees.push(
+        scene.vegetation.push(
             createTree(
                 x,
-                ground,
+                y,
                 scale,
-                rand(-0.15, 0.15),
-                2 + Math.floor(rand(0, 4))
+                int(3, 5)
             )
         );
     }
 
-    const cloudCount = Math.floor(3 + idea.atmosphere * 12);
+    const cloudCount =
+        int(
+            2,
+            5 +
+            Math.floor(
+                idea.atmosphere * 12
+            )
+        );
 
     for (let i = 0; i < cloudCount; i++) {
         scene.clouds.push(
             createCloud(
                 rand(-100, WIDTH + 100),
-                rand(60, scene.horizon * 0.65),
-                rand(45, 150),
-                rand(15, 55)
+                rand(
+                    40,
+                    composition.horizon * 0.7
+                ),
+                rand(70, 230),
+                rand(20, 75)
             )
         );
     }
-
-    createTerrain(scene, idea);
 }
 
-/* =========================================================
-   TERRAIN ENGINE
-========================================================= */
+function createTerrain(scene, composition, idea) {
+    const rows =
+        14 +
+        Math.floor(
+            idea.complexity * 25
+        );
 
-function createTerrain(scene, idea) {
-    const rows = Math.floor(12 + idea.complexity * 24);
     const cols = 80;
 
     for (let r = 0; r < rows; r++) {
         const depth = r / rows;
-        const y = lerp(scene.horizon + 10, HEIGHT + 40, depth);
+
+        const y =
+            lerp(
+                composition.horizon + 15,
+                HEIGHT + 20,
+                Math.pow(depth, 0.9)
+            );
 
         const row = [];
 
         for (let c = 0; c <= cols; c++) {
-            const x = c / cols;
+            const t = c / cols;
 
-            const undulation =
+            const large =
                 fbm(
-                    x * 900 + r * 42,
-                    4,
-                    180,
-                    r * 13
+                    t * 700 +
+                    r * 30,
+                    5,
+                    160,
+                    r * 11
                 );
 
-            const perspective =
-                Math.pow(depth, 1.4) * 40;
+            const small =
+                fbm(
+                    t * 1000 +
+                    r * 50,
+                    3,
+                    45,
+                    r * 7
+                );
 
             row.push({
-                x: x * WIDTH,
+                x: t * WIDTH,
                 y:
                     y +
-                    (undulation - 0.5) *
-                    perspective *
-                    (0.4 + idea.surfaceContinuity)
+                    (
+                        large -
+                        0.5
+                    ) *
+                    lerp(
+                        10,
+                        80,
+                        depth
+                    ) +
+                    (
+                        small -
+                        0.5
+                    ) *
+                    18
             });
         }
 
@@ -563,36 +992,52 @@ function createTerrain(scene, idea) {
 }
 
 /* =========================================================
-   TREE / ORGANIC FORM ENGINE
+   ORGANIC STRUCTURES
 ========================================================= */
 
-function createTree(x, y, scale, angle, generations) {
+function createTree(
+    x,
+    y,
+    scale,
+    generations
+) {
     const tree = {
         branches: [],
-        x,
-        y,
-        scale
+        foliage: []
     };
 
-    function branch(
+    function grow(
         x1,
         y1,
         length,
-        a,
+        angle,
         width,
         generation
     ) {
-        if (generation <= 0) return;
+        if (generation <= 0) {
+            tree.foliage.push({
+                x: x1,
+                y: y1,
+                radius:
+                    rand(7, 18) *
+                    scale
+            });
 
-        const bend = rand(-0.35, 0.35);
+            return;
+        }
+
+        const bend =
+            rand(-0.28, 0.28);
 
         const x2 =
             x1 +
-            Math.cos(a + bend) * length;
+            Math.cos(angle + bend) *
+            length;
 
         const y2 =
             y1 +
-            Math.sin(a + bend) * length;
+            Math.sin(angle + bend) *
+            length;
 
         tree.branches.push({
             x1,
@@ -602,48 +1047,83 @@ function createTree(x, y, scale, angle, generations) {
             width
         });
 
-        const children = generation <= 2
-            ? 2
-            : Math.floor(rand(2, 4));
+        const childCount =
+            generation >= 3
+                ? int(2, 4)
+                : int(1, 3);
 
-        for (let i = 0; i < children; i++) {
-            const childAngle =
-                a +
-                rand(-1.15, 1.15);
-
-            branch(
+        for (let i = 0; i < childCount; i++) {
+            grow(
                 x2,
                 y2,
-                length * rand(0.45, 0.78),
-                childAngle,
-                width * rand(0.48, 0.72),
+                length *
+                rand(0.48, 0.76),
+
+                angle +
+                rand(
+                    -1.15,
+                    1.15
+                ),
+
+                width *
+                rand(0.42, 0.72),
+
                 generation - 1
             );
         }
     }
 
-    branch(
+    grow(
         x,
         y,
-        100 * scale,
-        -Math.PI / 2 + angle,
-        16 * scale,
+        105 * scale,
+        -Math.PI / 2 +
+        rand(-0.1, 0.1),
+        15 * scale,
         generations
     );
 
     return tree;
 }
 
-function createCloud(x, y, width, height) {
+function createCloud(
+    x,
+    y,
+    width,
+    height
+) {
     const lobes = [];
-    const count = Math.floor(rand(4, 10));
+
+    const count =
+        int(4, 11);
 
     for (let i = 0; i < count; i++) {
         lobes.push({
-            x: x + rand(-width * 0.45, width * 0.45),
-            y: y + rand(-height * 0.35, height * 0.35),
-            rx: rand(width * 0.15, width * 0.38),
-            ry: rand(height * 0.35, height * 0.8)
+            x:
+                x +
+                rand(
+                    -width * 0.45,
+                    width * 0.45
+                ),
+
+            y:
+                y +
+                rand(
+                    -height * 0.35,
+                    height * 0.35
+                ),
+
+            rx:
+                rand(
+                    width * 0.12,
+                    width * 0.35
+                ),
+
+            ry:
+                rand(
+                    height * 0.35,
+                    height * 0.85
+                )
         });
     }
 
@@ -651,228 +1131,588 @@ function createCloud(x, y, width, height) {
 }
 
 /* =========================================================
-   CONSTRUCTED FORM ENGINE
+   ARCHITECTURE
 ========================================================= */
 
-function buildConstructedScene(scene, idea) {
-    const cx = scene.focal.x;
-    const cy = scene.focal.y;
+function buildArchitecture(
+    scene,
+    idea,
+    composition
+) {
+    const main =
+        createStructure(
+            composition.focalX,
+            composition.focalY,
+            rand(150, 330) *
+                composition.primaryMass.scale,
+            rand(200, 430) *
+                composition.primaryMass.scale,
+            0.2,
+            int(3, 8),
+            rand(-0.1, 0.1)
+        );
 
-    const width = lerp(80, 280, rand());
-    const height = lerp(130, 360, rand());
+    scene.structures.push(main);
 
-    const levels = Math.floor(2 + idea.complexity * 7);
+    const satellites =
+        composition.secondaryMasses;
 
-    const object = {
-        x: cx,
-        y: cy,
-        width,
-        height,
-        levels,
-        rotation: rand(-0.12, 0.12),
-        parts: []
-    };
+    for (let i = 0; i < satellites; i++) {
+        const angle =
+            rand(0, TAU);
 
-    for (let i = 0; i < levels; i++) {
-        const t = i / levels;
+        const distance =
+            rand(180, 470);
 
-        object.parts.push({
-            x: cx + rand(-width * 0.2, width * 0.2),
-            y: cy + height * 0.5 - t * height,
-            width: width * rand(0.45, 1),
-            height: height / levels * rand(0.65, 1.2),
-            rotation: rand(-0.12, 0.12),
-            protrusions: Math.floor(rand(0, 4))
-        });
+        const x =
+            composition.focalX +
+            Math.cos(angle) *
+            distance;
+
+        const y =
+            composition.focalY +
+            Math.sin(angle) *
+            distance *
+            0.55;
+
+        scene.structures.push(
+            createStructure(
+                x,
+                y,
+                rand(45, 170),
+                rand(70, 260),
+                rand(0.3, 0.9),
+                int(1, 5),
+                rand(-0.2, 0.2)
+            )
+        );
     }
 
-    scene.objects.push(object);
+    createGroundStructures(
+        scene,
+        composition,
+        idea
+    );
+}
 
-    const surrounding = Math.floor(3 + idea.complexity * 10);
+function createGroundStructures(
+    scene,
+    composition,
+    idea
+) {
+    const count =
+        int(
+            4,
+            12 +
+            Math.floor(
+                idea.complexity * 10
+            )
+        );
 
-    for (let i = 0; i < surrounding; i++) {
-        scene.objects.push({
-            x: rand(0, WIDTH),
-            y: rand(scene.horizon, HEIGHT * 0.8),
-            width: rand(25, 120),
-            height: rand(40, 180),
-            levels: Math.floor(rand(1, 4)),
-            rotation: rand(-0.3, 0.3),
-            parts: []
-        });
+    for (let i = 0; i < count; i++) {
+        const x =
+            rand(
+                -50,
+                WIDTH + 50
+            );
+
+        const y =
+            lerp(
+                composition.horizon,
+                HEIGHT,
+                Math.pow(
+                    rand(),
+                    1.5
+                )
+            );
+
+        scene.structures.push(
+            createStructure(
+                x,
+                y,
+                rand(25, 100),
+                rand(30, 150),
+                rand(0.4, 1),
+                int(1, 3),
+                rand(-0.15, 0.15)
+            )
+        );
     }
 }
 
 /* =========================================================
-   FIGURE / FACE CONSTRUCTION ENGINE
+   FIGURE CONSTRUCTION
 ========================================================= */
 
-function buildFigureScene(scene, idea) {
-    const cx = scene.focal.x;
-    const cy = scene.focal.y;
+function buildFigure(
+    scene,
+    idea,
+    composition
+) {
+    const cx =
+        composition.focalX;
 
-    const headWidth = lerp(110, 260, rand());
-    const headHeight = headWidth * lerp(1.05, 1.45, rand());
+    const cy =
+        composition.focalY;
 
-    const asymmetry = 1 - idea.symmetry;
+    const scale =
+        lerp(
+            0.7,
+            1.35,
+            rand()
+        );
+
+    const headWidth =
+        rand(110, 210) * scale;
+
+    const headHeight =
+        headWidth *
+        rand(1.05, 1.45);
+
+    const shoulderWidth =
+        headWidth *
+        rand(1.5, 2.3);
+
+    const symmetry =
+        lerp(
+            0.55,
+            0.96,
+            idea.symmetry
+        );
 
     const face = {
         cx,
         cy,
         headWidth,
         headHeight,
-        rotation: rand(-0.18, 0.18),
+        shoulderWidth,
+        symmetry,
+        eyeY:
+            cy -
+            headHeight *
+            rand(0.12, 0.22),
+
+        noseLength:
+            headHeight *
+            rand(0.14, 0.27),
+
+        mouthY:
+            cy +
+            headHeight *
+            rand(0.22, 0.38),
+
+        jaw:
+            rand(0.72, 1.05),
+
         features: []
     };
 
-    const eyeY = cy - headHeight * rand(0.12, 0.22);
-    const eyeSpacing = headWidth * rand(0.18, 0.3);
+    const eyeSpacing =
+        headWidth *
+        rand(0.18, 0.29);
+
+    const asym =
+        1 - symmetry;
 
     face.features.push({
         type: "eye",
-        x: cx - eyeSpacing + rand(-asymmetry * 18, asymmetry * 18),
-        y: eyeY,
-        size: rand(10, 28),
-        side: -1
+        x:
+            cx -
+            eyeSpacing +
+            rand(-asym * 18, asym * 18),
+
+        y:
+            face.eyeY +
+            rand(-asym * 8, asym * 8),
+
+        width:
+            rand(24, 48),
+
+        height:
+            rand(8, 17)
     });
 
     face.features.push({
         type: "eye",
-        x: cx + eyeSpacing + rand(-asymmetry * 18, asymmetry * 18),
-        y: eyeY + rand(-asymmetry * 10, asymmetry * 10),
-        size: rand(10, 28),
-        side: 1
+        x:
+            cx +
+            eyeSpacing +
+            rand(-asym * 18, asym * 18),
+
+        y:
+            face.eyeY +
+            rand(-asym * 8, asym * 8),
+
+        width:
+            rand(24, 48),
+
+        height:
+            rand(8, 17)
     });
 
     face.features.push({
         type: "nose",
-        x: cx + rand(-asymmetry * 35, asymmetry * 35),
-        y: cy + rand(-5, 35),
-        size: headHeight * rand(0.16, 0.28)
+        x:
+            cx +
+            rand(-asym * 30, asym * 30),
+
+        y:
+            cy -
+            headHeight * 0.03,
+
+        length:
+            face.noseLength
     });
 
     face.features.push({
         type: "mouth",
-        x: cx + rand(-asymmetry * 30, asymmetry * 30),
-        y: cy + headHeight * rand(0.25, 0.38),
-        width: headWidth * rand(0.22, 0.42)
+        x:
+            cx +
+            rand(-asym * 20, asym * 20),
+
+        y:
+            face.mouthY,
+
+        width:
+            headWidth *
+            rand(0.2, 0.42)
     });
 
-    scene.objects.push({
-        type: "face",
-        ...face
+    scene.figures.push(face);
+
+    scene.masses.push({
+        type: "shoulders",
+        points: [
+            {
+                x:
+                    cx -
+                    shoulderWidth / 2,
+                y:
+                    cy +
+                    headHeight * 0.52
+            },
+            {
+                x:
+                    cx +
+                    shoulderWidth / 2,
+                y:
+                    cy +
+                    headHeight * 0.52
+            },
+            {
+                x:
+                    cx +
+                    shoulderWidth * 0.42,
+                y:
+                    cy +
+                    headHeight * 1.6
+            },
+            {
+                x:
+                    cx -
+                    shoulderWidth * 0.42,
+                y:
+                    cy +
+                    headHeight * 1.6
+            }
+        ]
     });
 }
 
 /* =========================================================
-   ABSTRACT CONSTRUCTION ENGINE
+   ABSTRACT STRUCTURAL GRAMMAR
 ========================================================= */
 
-function buildAbstractScene(scene, idea) {
-    const count = Math.floor(
-        3 +
-        idea.complexity * 18
-    );
+function buildAbstract(
+    scene,
+    idea,
+    composition
+) {
+    const anchorCount =
+        int(
+            3,
+            8 +
+            Math.floor(
+                idea.complexity * 8
+            )
+        );
 
-    for (let i = 0; i < count; i++) {
-        const cx = rand(0, WIDTH);
-        const cy = rand(0, HEIGHT);
+    const anchors = [];
+
+    for (let i = 0; i < anchorCount; i++) {
+        anchors.push({
+            x: rand(80, WIDTH - 80),
+            y: rand(80, HEIGHT - 80),
+            scale: rand(0.3, 1)
+        });
+    }
+
+    for (let i = 0; i < anchors.length; i++) {
+        const a = anchors[i];
+
+        const sides =
+            int(5, 12);
 
         const points = [];
-        const sides = Math.floor(rand(5, 18));
-        const radius = rand(30, 250);
 
         for (let j = 0; j < sides; j++) {
-            const a = j / sides * TAU;
+            const angle =
+                j / sides * TAU;
 
-            const r =
-                radius *
-                rand(0.45, 1.15) *
-                (0.7 + fbm(j * 70 + i * 20, 3, 30, i));
+            const radius =
+                rand(
+                    30,
+                    180
+                ) *
+                a.scale;
 
-            points.push(
-                polar(cx, cy, a, r)
+            points.push({
+                x:
+                    a.x +
+                    Math.cos(angle) *
+                    radius,
+
+                y:
+                    a.y +
+                    Math.sin(angle) *
+                    radius
+            });
+        }
+
+        scene.masses.push({
+            type: "abstract",
+            points
+        });
+
+        if (i > 0) {
+            scene.strokes.push({
+                a: anchors[i - 1],
+                b: a,
+                width: rand(2, 12)
+            });
+        }
+    }
+}
+
+/* =========================================================
+   BUILD WHOLE WORLD
+========================================================= */
+
+function buildWorld() {
+    const idea = artist.idea;
+    const composition =
+        artist.composition;
+
+    const scene = createScene();
+
+    if (
+        idea.direction ===
+        "landscape"
+    ) {
+        buildLandscape(
+            scene,
+            idea,
+            composition
+        );
+    }
+
+    if (
+        idea.direction ===
+        "architecture"
+    ) {
+        buildArchitecture(
+            scene,
+            idea,
+            composition
+        );
+    }
+
+    if (
+        idea.direction ===
+        "figure"
+    ) {
+        buildFigure(
+            scene,
+            idea,
+            composition
+        );
+    }
+
+    if (
+        idea.direction ===
+        "organic"
+    ) {
+        buildLandscape(
+            scene,
+            idea,
+            composition
+        );
+
+        buildOrganicDominant(
+            scene,
+            idea,
+            composition
+        );
+    }
+
+    if (
+        idea.direction ===
+        "abstract"
+    ) {
+        buildAbstract(
+            scene,
+            idea,
+            composition
+        );
+    }
+
+    scene.lights = createLights(
+        idea
+    );
+
+    artist.scene = scene;
+}
+
+function buildOrganicDominant(
+    scene,
+    idea,
+    composition
+) {
+    const centralTree =
+        createTree(
+            composition.focalX,
+            composition.focalY +
+            180,
+            rand(1, 2.2),
+            int(4, 6)
+        );
+
+    scene.vegetation.push(
+        centralTree
+    );
+
+    const branches =
+        int(
+            4,
+            12 +
+            Math.floor(
+                idea.branching * 20
+            )
+        );
+
+    for (let i = 0; i < branches; i++) {
+        const x =
+            composition.focalX +
+            rand(-350, 350);
+
+        const y =
+            composition.focalY +
+            rand(-200, 250);
+
+        scene.vegetation.push(
+            createTree(
+                x,
+                y,
+                rand(0.3, 1),
+                int(2, 4)
+            )
+        );
+    }
+}
+
+/* =========================================================
+   LIGHTING
+========================================================= */
+
+function createLights(idea) {
+    const count =
+        int(
+            1,
+            2 +
+            Math.floor(
+                idea.complexity * 2
+            )
+        );
+
+    const lights = [];
+
+    for (let i = 0; i < count; i++) {
+        lights.push({
+            x:
+                rand(
+                    -WIDTH * 0.4,
+                    WIDTH * 1.4
+                ),
+
+            y:
+                rand(
+                    -HEIGHT * 0.3,
+                    HEIGHT * 0.7
+                ),
+
+            radius:
+                rand(
+                    250,
+                    850
+                ),
+
+            intensity:
+                rand(
+                    0.45,
+                    1
+                ),
+
+            warm:
+                rand()
+        });
+    }
+
+    return lights;
+}
+
+function lightingAt(
+    x,
+    y
+) {
+    let total = 0;
+
+    for (const light of artist.scene.lights) {
+        const d =
+            Math.hypot(
+                light.x - x,
+                light.y - y
             );
-        }
 
-        scene.geometry.push({
-            type: "blob",
-            points,
-            rotation: rand(-Math.PI, Math.PI)
-        });
+        total +=
+            clamp(
+                1 -
+                d / light.radius,
+                0,
+                1
+            ) *
+            light.intensity;
     }
 
-    const lineCount = Math.floor(
-        5 + idea.repetition * 40
+    return clamp(
+        total,
+        0,
+        1
     );
-
-    for (let i = 0; i < lineCount; i++) {
-        const points = [];
-
-        let x = rand(0, WIDTH);
-        let y = rand(0, HEIGHT);
-        let angle = rand(0, TAU);
-
-        const steps = Math.floor(rand(10, 60));
-
-        for (let j = 0; j < steps; j++) {
-            points.push({ x, y });
-
-            angle += rand(-0.5, 0.5);
-
-            x += Math.cos(angle) * rand(5, 30);
-            y += Math.sin(angle) * rand(5, 30);
-        }
-
-        scene.strokes.push({
-            points,
-            width: rand(2, 12)
-        });
-    }
 }
 
 /* =========================================================
-   ATMOSPHERE / LIGHT
+   PIGMENT
 ========================================================= */
 
-function addAtmosphere(scene, idea) {
-    const count = Math.floor(
-        3 + idea.atmosphere * 12
-    );
-
-    for (let i = 0; i < count; i++) {
-        scene.geometry.push({
-            type: "atmosphere",
-            x: rand(0, WIDTH),
-            y: rand(0, HEIGHT),
-            radius: rand(80, 350),
-            alpha: rand(0.01, 0.06)
-        });
-    }
-}
-
-function addLights(scene, idea) {
-    const count = Math.floor(
-        1 + rand(0, 3 + idea.complexity * 3)
-    );
-
-    for (let i = 0; i < count; i++) {
-        scene.lights.push({
-            x: rand(-WIDTH * 0.3, WIDTH * 1.3),
-            y: rand(-HEIGHT * 0.3, HEIGHT * 0.8),
-            radius: rand(200, 700),
-            intensity: rand(0.3, 1),
-            warm: rand()
-        });
-    }
-}
-
-/* =========================================================
-   PAINTING PRIMITIVES
-========================================================= */
-
-function addCircle(x, y, radius, color, alpha = 1, depth = 0) {
-    state.paint.push({
+function addPigment(
+    x,
+    y,
+    radius,
+    color,
+    alpha = 1,
+    depth = 0
+) {
+    artist.pigment.push({
         x,
         y,
         radius,
@@ -882,25 +1722,109 @@ function addCircle(x, y, radius, color, alpha = 1, depth = 0) {
     });
 }
 
-function sampleLine(a, b, density, color, radius, depth = 0) {
-    const d = dist(a, b);
-    const count = Math.max(1, Math.floor(d * density));
+function paintLine(
+    a,
+    b,
+    color,
+    radius,
+    density = 0.35,
+    depth = 0
+) {
+    const d =
+        distance(a, b);
+
+    const count =
+        Math.max(
+            2,
+            Math.floor(
+                d * density
+            )
+        );
 
     for (let i = 0; i < count; i++) {
-        const t = count === 1 ? 0.5 : i / (count - 1);
+        const t =
+            i /
+            Math.max(
+                1,
+                count - 1
+            );
 
-        addCircle(
-            lerp(a.x, b.x, t) + rand(-radius, radius),
-            lerp(a.y, b.y, t) + rand(-radius, radius),
-            radius * rand(0.45, 1.1),
+        addPigment(
+            lerp(a.x, b.x, t) +
+                rand(
+                    -radius,
+                    radius
+                ),
+
+            lerp(a.y, b.y, t) +
+                rand(
+                    -radius,
+                    radius
+                ),
+
+            radius *
+                rand(
+                    0.45,
+                    1.2
+                ),
+
             color,
-            rand(0.55, 1),
+            rand(
+                0.45,
+                0.95
+            ),
             depth
         );
     }
 }
 
-function paintPolygon(points, color, density, radius, depth = 0) {
+function polygonContains(
+    x,
+    y,
+    points
+) {
+    let inside = false;
+
+    for (
+        let i = 0,
+        j = points.length - 1;
+        i < points.length;
+        j = i++
+    ) {
+        const xi =
+            points[i].x;
+
+        const yi =
+            points[i].y;
+
+        const xj =
+            points[j].x;
+
+        const yj =
+            points[j].y;
+
+        const hit =
+            ((yi > y) !==
+                (yj > y)) &&
+            x <
+                (xj - xi) *
+                    (y - yi) /
+                    (yj - yi) +
+                xi;
+
+        if (hit) inside = !inside;
+    }
+
+    return inside;
+}
+
+function paintPolygon(
+    points,
+    color,
+    density,
+    radius,
+    depth = 0
+) {
     if (points.length < 3) return;
 
     let minX = Infinity;
@@ -909,109 +1833,199 @@ function paintPolygon(points, color, density, radius, depth = 0) {
     let maxY = -Infinity;
 
     for (const p of points) {
-        minX = Math.min(minX, p.x);
-        maxX = Math.max(maxX, p.x);
-        minY = Math.min(minY, p.y);
-        maxY = Math.max(maxY, p.y);
+        minX =
+            Math.min(
+                minX,
+                p.x
+            );
+
+        maxX =
+            Math.max(
+                maxX,
+                p.x
+            );
+
+        minY =
+            Math.min(
+                minY,
+                p.y
+            );
+
+        maxY =
+            Math.max(
+                maxY,
+                p.y
+            );
     }
 
     const area =
-        (maxX - minX) *
-        (maxY - minY);
+        Math.max(
+            1,
+            (maxX - minX) *
+            (maxY - minY)
+        );
 
-    const count = Math.floor(
-        area * density
-    );
-
-    function inside(x, y) {
-        let hit = false;
-
-        for (
-            let i = 0, j = points.length - 1;
-            i < points.length;
-            j = i++
-        ) {
-            const xi = points[i].x;
-            const yi = points[i].y;
-            const xj = points[j].x;
-            const yj = points[j].y;
-
-            const intersect =
-                ((yi > y) !== (yj > y)) &&
-                x <
-                (xj - xi) *
-                (y - yi) /
-                (yj - yi) +
-                xi;
-
-            if (intersect) hit = !hit;
-        }
-
-        return hit;
-    }
+    const count =
+        Math.floor(
+            area * density
+        );
 
     for (let i = 0; i < count; i++) {
-        const x = rand(minX, maxX);
-        const y = rand(minY, maxY);
+        const x =
+            rand(minX, maxX);
 
-        if (inside(x, y)) {
-            addCircle(
+        const y =
+            rand(minY, maxY);
+
+        if (
+            polygonContains(
                 x,
                 y,
-                radius * rand(0.5, 1.35),
+                points
+            )
+        ) {
+            addPigment(
+                x,
+                y,
+                radius *
+                    rand(
+                        0.5,
+                        1.35
+                    ),
                 color,
-                rand(0.45, 0.95),
+                rand(
+                    0.45,
+                    0.95
+                ),
                 depth
             );
         }
     }
 }
 
-function paintCurve(points, color, radius, depth = 0) {
-    for (let i = 1; i < points.length; i++) {
-        sampleLine(
-            points[i - 1],
-            points[i],
-            0.35,
-            color,
-            radius,
-            depth
-        );
+/* =========================================================
+   COLOUR ROLE SELECTION
+========================================================= */
+
+function roleColor(role) {
+    const p = artist.palette;
+
+    if (role === "dominant") {
+        return p.dominant;
     }
+
+    if (role === "secondary") {
+        return p.secondary;
+    }
+
+    if (role === "accent") {
+        return p.accent;
+    }
+
+    if (role === "highlight") {
+        return p.highlight;
+    }
+
+    if (role === "shadow") {
+        return p.shadow;
+    }
+
+    return p.dominant;
+}
+
+function chooseSurfaceColor(
+    role,
+    x,
+    y,
+    variation = 1
+) {
+    let base =
+        roleColor(role);
+
+    const light =
+        lightingAt(x, y);
+
+    if (
+        role === "dominant" ||
+        role === "secondary"
+    ) {
+        base =
+            mixColor(
+                base,
+                artist.palette.highlight,
+                light *
+                0.16
+            );
+    }
+
+    if (light < 0.22) {
+        base =
+            mixColor(
+                base,
+                artist.palette.shadow,
+                0.25
+            );
+    }
+
+    base =
+        shiftColor(
+            base,
+            rand(-8, 8) *
+                variation,
+            rand(0.93, 1.08),
+            rand(-5, 5) *
+                variation
+        );
+
+    return base;
 }
 
 /* =========================================================
-   BACKGROUND PAINT
+   PAINT BACKGROUND
 ========================================================= */
 
-function paintBackground(scene, palette, idea) {
-    const rows = 70;
-    const rowHeight = HEIGHT / rows;
+function paintBackground() {
+    const palette =
+        artist.palette;
+
+    const rows = 90;
 
     for (let r = 0; r < rows; r++) {
-        const t = r / rows;
+        const t =
+            r /
+            Math.max(
+                1,
+                rows - 1
+            );
 
-        const skyColor = mixColor(
-            palette.sky,
-            palette.colors[1],
-            t
-        );
+        const c =
+            mixColor(
+                palette.dominant,
+                palette.secondary,
+                t
+            );
 
-        const density = 0.15 + idea.complexity * 0.08;
+        const count =
+            Math.floor(
+                WIDTH *
+                0.13
+            );
 
-        for (let i = 0; i < WIDTH * density; i++) {
-            const x = rand(0, WIDTH);
-            const y = r * rowHeight + rand(-4, 4);
-
-            addCircle(
-                x,
-                y,
+        for (let i = 0; i < count; i++) {
+            addPigment(
+                rand(0, WIDTH),
+                r *
+                    HEIGHT /
+                    rows +
+                    rand(-5, 5),
                 rand(2, 8),
-                adjustColor(
-                    skyColor,
-                    rand(-10, 10)
+                shiftColor(
+                    c,
+                    rand(-7, 7),
+                    1,
+                    rand(-6, 6)
                 ),
-                rand(0.25, 0.8),
+                rand(0.25, 0.72),
                 0
             );
         }
@@ -1019,119 +2033,92 @@ function paintBackground(scene, palette, idea) {
 }
 
 /* =========================================================
-   MOUNTAIN PAINT
+   PAINT MOUNTAINS
 ========================================================= */
 
-function paintMountains(scene, palette, idea) {
-    for (const mountain of scene.mountains) {
-        const baseColor = mixColor(
-            palette.colors[1],
-            palette.shadow,
-            mountain.depth
-        );
+function paintMountains() {
+    const scene =
+        artist.scene;
 
-        const litColor = mixColor(
-            baseColor,
-            palette.light,
-            0.25 + idea.colorTemperature * 0.3
-        );
+    for (
+        const mountain
+        of scene.masses
+    ) {
+        if (
+            mountain.type !==
+            "mountain"
+        ) continue;
 
-        const darkColor = adjustColor(
-            baseColor,
-            -25
-        );
-
-        const points = mountain.points;
-
-        const fillPoints = [
-            ...points,
-            { x: WIDTH, y: HEIGHT },
-            { x: 0, y: HEIGHT }
-        ];
-
-        paintPolygon(
-            fillPoints,
-            baseColor,
-            0.0015,
-            rand(3, 7),
-            mountain.depth
-        );
-
-        for (let i = 1; i < points.length; i++) {
-            const p = points[i];
-
-            const slope =
-                points[i - 1].y - p.y;
-
-            const color =
-                slope > 0
-                    ? litColor
-                    : darkColor;
-
-            addCircle(
-                p.x + rand(-8, 8),
-                p.y + rand(-4, 7),
-                rand(3, 10),
-                color,
-                rand(0.5, 0.9),
-                mountain.depth
-            );
-        }
-
-        for (let i = 0; i < points.length - 1; i++) {
-            if (chance(0.55)) {
-                sampleLine(
-                    points[i],
-                    points[i + 1],
-                    0.4,
-                    chance(0.55)
-                        ? litColor
-                        : darkColor,
-                    rand(2, 7),
-                    mountain.depth
-                );
-            }
-        }
-    }
-}
-
-/* =========================================================
-   TERRAIN PAINT
-========================================================= */
-
-function paintTerrain(scene, palette, idea) {
-    for (let r = 0; r < scene.terrain.length; r++) {
-        const row = scene.terrain[r];
-        const depth = r / scene.terrain.length;
+        const depth =
+            mountain.depth;
 
         const base =
             mixColor(
-                palette.colors[1],
-                palette.shadow,
-                depth * 0.6
+                artist.palette.secondary,
+                artist.palette.shadow,
+                depth * 0.65
             );
 
-        for (let i = 1; i < row.length; i++) {
-            if (chance(0.8)) {
-                const slope =
-                    row[i - 1].y - row[i].y;
+        const fill = [
+            ...mountain.points,
+            {
+                x: WIDTH,
+                y: HEIGHT
+            },
+            {
+                x: 0,
+                y: HEIGHT
+            }
+        ];
 
-                let c = base;
+        paintPolygon(
+            fill,
+            base,
+            0.0019,
+            rand(3, 7),
+            depth
+        );
 
-                if (slope > 2) {
-                    c = mixColor(
-                        base,
-                        palette.light,
-                        0.25
+        for (
+            let i = 1;
+            i <
+            mountain.points.length;
+            i++
+        ) {
+            const a =
+                mountain.points[i - 1];
+
+            const b =
+                mountain.points[i];
+
+            const slope =
+                a.y - b.y;
+
+            let color;
+
+            if (slope > 0) {
+                color =
+                    chooseSurfaceColor(
+                        "highlight",
+                        b.x,
+                        b.y
                     );
-                }
+            } else {
+                color =
+                    chooseSurfaceColor(
+                        "shadow",
+                        b.x,
+                        b.y
+                    );
+            }
 
-                sampleLine(
-                    row[i - 1],
-                    row[i],
-                    0.12 + idea.complexity * 0.05,
-                    c,
-                    rand(2, 6),
+            if (chance(0.6)) {
+                paintLine(
+                    a,
+                    b,
+                    color,
+                    rand(2, 7),
+                    0.32,
                     depth
                 );
             }
@@ -1140,86 +2127,137 @@ function paintTerrain(scene, palette, idea) {
 }
 
 /* =========================================================
-   TREE PAINT
+   PAINT TERRAIN
 ========================================================= */
 
-function paintTrees(scene, palette, idea) {
-    for (const tree of scene.trees) {
-        const trunk = mixColor(
-            palette.shadow,
-            palette.colors[2],
-            0.3
-        );
+function paintTerrain() {
+    const scene =
+        artist.scene;
 
-        for (const branch of tree.branches) {
-            sampleLine(
-                { x: branch.x1, y: branch.y1 },
-                { x: branch.x2, y: branch.y2 },
-                0.4,
-                trunk,
-                Math.max(
-                    1.5,
-                    branch.width * 0.22
-                ),
-                0.2
+    for (
+        let r = 0;
+        r < scene.terrain.length;
+        r++
+    ) {
+        const row =
+            scene.terrain[r];
+
+        const depth =
+            r /
+            scene.terrain.length;
+
+        const role =
+            depth < 0.3
+                ? "secondary"
+                : "dominant";
+
+        for (
+            let i = 1;
+            i < row.length;
+            i++
+        ) {
+            const a =
+                row[i - 1];
+
+            const b =
+                row[i];
+
+            const slope =
+                a.y - b.y;
+
+            const color =
+                chooseSurfaceColor(
+                    slope > 2
+                        ? "highlight"
+                        : role,
+                    b.x,
+                    b.y,
+                    0.8
+                );
+
+            paintLine(
+                a,
+                b,
+                color,
+                rand(2, 6),
+                0.13,
+                depth
             );
-
-            if (branch.width < 5) {
-                for (let i = 0; i < 3; i++) {
-                    addCircle(
-                        branch.x2 + rand(-12, 12),
-                        branch.y2 + rand(-12, 12),
-                        rand(5, 14),
-                        mixColor(
-                            palette.colors[2],
-                            palette.accent,
-                            rand()
-                        ),
-                        rand(0.25, 0.75),
-                        0.1
-                    );
-                }
-            }
         }
     }
 }
 
 /* =========================================================
-   CLOUD PAINT
+   PAINT CLOUDS
 ========================================================= */
 
-function paintClouds(scene, palette, idea) {
-    const cloudColor = mixColor(
-        palette.colors[0],
-        { r: 240, g: 240, b: 235 },
-        0.6
-    );
+function paintClouds() {
+    const p =
+        artist.palette;
 
-    for (const cloud of scene.clouds) {
-        for (const lobe of cloud.lobes) {
-            const count = Math.floor(
-                lobe.rx * lobe.ry * 0.05
-            );
+    for (
+        const cloud
+        of artist.scene.clouds
+    ) {
+        for (
+            const lobe
+            of cloud.lobes
+        ) {
+            const area =
+                lobe.rx *
+                lobe.ry;
 
-            for (let i = 0; i < count; i++) {
-                const a = rand(0, TAU);
-                const r = Math.sqrt(rand());
+            const count =
+                Math.floor(
+                    area *
+                    0.045
+                );
 
-                addCircle(
+            const base =
+                mixColor(
+                    p.highlight,
+                    p.atmosphere,
+                    rand(0.1, 0.5)
+                );
+
+            for (
+                let i = 0;
+                i < count;
+                i++
+            ) {
+                const a =
+                    rand(0, TAU);
+
+                const r =
+                    Math.sqrt(
+                        rand()
+                    );
+
+                addPigment(
                     lobe.x +
                         Math.cos(a) *
                         lobe.rx *
                         r,
+
                     lobe.y +
                         Math.sin(a) *
                         lobe.ry *
                         r,
-                    rand(3, 12),
-                    adjustColor(
-                        cloudColor,
-                        rand(-12, 12)
+
+                    rand(3, 11),
+
+                    shiftColor(
+                        base,
+                        rand(-8, 8),
+                        1,
+                        rand(-12, 8)
                     ),
-                    rand(0.1, 0.5),
+
+                    rand(
+                        0.12,
+                        0.55
+                    ),
+
                     0
                 );
             }
@@ -1228,345 +2266,692 @@ function paintClouds(scene, palette, idea) {
 }
 
 /* =========================================================
-   CONSTRUCTED OBJECT PAINT
+   PAINT VEGETATION
 ========================================================= */
 
-function paintConstructed(scene, palette, idea) {
-    for (const object of scene.objects) {
-        if (object.type === "face") {
-            paintFace(object, palette, idea);
-            continue;
+function paintVegetation() {
+    const p =
+        artist.palette;
+
+    for (
+        const tree
+        of artist.scene.vegetation
+    ) {
+        for (
+            const branch
+            of tree.branches
+        ) {
+            const color =
+                chooseSurfaceColor(
+                    branch.width > 5
+                        ? "shadow"
+                        : "dominant",
+                    branch.x2,
+                    branch.y2,
+                    0.7
+                );
+
+            paintLine(
+                {
+                    x: branch.x1,
+                    y: branch.y1
+                },
+                {
+                    x: branch.x2,
+                    y: branch.y2
+                },
+                color,
+                Math.max(
+                    1.5,
+                    branch.width *
+                    0.23
+                ),
+                0.4,
+                0.2
+            );
         }
 
-        const base = palette.colors[
-            Math.floor(rand(0, palette.colors.length))
-        ];
-
-        if (object.parts.length) {
-            for (const part of object.parts) {
-                const points = [
-                    { x: part.x - part.width / 2, y: part.y },
-                    { x: part.x + part.width / 2, y: part.y },
-                    {
-                        x: part.x + part.width / 2,
-                        y: part.y + part.height
-                    },
-                    {
-                        x: part.x - part.width / 2,
-                        y: part.y + part.height
-                    }
-                ];
-
-                const rotated = points.map(p =>
-                    rotatePoint(
-                        p,
-                        part.rotation,
-                        part.x,
-                        part.y
-                    )
+        for (
+            const leaf
+            of tree.foliage
+        ) {
+            const leafColor =
+                mixColor(
+                    p.dominant,
+                    p.accent,
+                    rand(0.05, 0.35)
                 );
 
-                paintPolygon(
-                    rotated,
-                    base,
-                    0.006,
-                    rand(2, 7),
-                    0.3
+            const count =
+                int(4, 12);
+
+            for (
+                let i = 0;
+                i < count;
+                i++
+            ) {
+                const a =
+                    rand(0, TAU);
+
+                const r =
+                    Math.sqrt(
+                        rand()
+                    ) *
+                    leaf.radius;
+
+                addPigment(
+                    leaf.x +
+                        Math.cos(a) * r,
+
+                    leaf.y +
+                        Math.sin(a) * r,
+
+                    rand(3, 10),
+
+                    shiftColor(
+                        leafColor,
+                        rand(-10, 10),
+                        rand(0.9, 1.1),
+                        rand(-10, 10)
+                    ),
+
+                    rand(
+                        0.25,
+                        0.8
+                    ),
+
+                    0.1
                 );
-
-                for (let p = 0; p < part.protrusions; p++) {
-                    const edge =
-                        pick(rotated);
-
-                    addCircle(
-                        edge.x,
-                        edge.y,
-                        rand(5, 20),
-                        palette.accent,
-                        rand(0.4, 0.9),
-                        0.2
-                    );
-                }
             }
-        } else {
+        }
+    }
+}
+
+/* =========================================================
+   PAINT STRUCTURES
+========================================================= */
+
+function paintStructures() {
+    const p =
+        artist.palette;
+
+    for (
+        const structure
+        of artist.scene.structures
+    ) {
+        const base =
+            chooseSurfaceColor(
+                "secondary",
+                structure.x,
+                structure.y
+            );
+
+        for (
+            const level
+            of structure.levels
+        ) {
             const points = [
                 {
-                    x: object.x - object.width / 2,
-                    y: object.y
+                    x:
+                        level.x -
+                        level.width / 2,
+
+                    y:
+                        level.y
                 },
+
                 {
-                    x: object.x + object.width / 2,
-                    y: object.y
+                    x:
+                        level.x +
+                        level.width / 2,
+
+                    y:
+                        level.y
                 },
+
                 {
-                    x: object.x + object.width / 2,
-                    y: object.y + object.height
+                    x:
+                        level.x +
+                        level.width / 2,
+
+                    y:
+                        level.y +
+                        level.height
                 },
+
                 {
-                    x: object.x - object.width / 2,
-                    y: object.y + object.height
+                    x:
+                        level.x -
+                        level.width / 2,
+
+                    y:
+                        level.y +
+                        level.height
                 }
             ];
 
             paintPolygon(
                 points,
-                base,
-                0.008,
-                rand(2, 7),
-                0.4
+                chooseSurfaceColor(
+                    "secondary",
+                    level.x,
+                    level.y
+                ),
+                0.006,
+                rand(2, 6),
+                structure.depth
+            );
+
+            const edge =
+                chooseSurfaceColor(
+                    "highlight",
+                    level.x,
+                    level.y
+                );
+
+            paintLine(
+                points[0],
+                points[1],
+                edge,
+                rand(1, 4),
+                0.5,
+                structure.depth
             );
         }
-    }
-}
 
-/* =========================================================
-   FACE PAINT
-========================================================= */
+        for (
+            const support
+            of structure.supports
+        ) {
+            paintLine(
+                support.a,
+                support.b,
+                p.shadow,
+                support.width,
+                0.4,
+                structure.depth
+            );
+        }
 
-function paintFace(face, palette, idea) {
-    const skin = mixColor(
-        palette.colors[2],
-        palette.light,
-        0.5
-    );
+        for (
+            const opening
+            of structure.openings
+        ) {
+            const points = [
+                {
+                    x:
+                        opening.x -
+                        opening.width / 2,
+                    y:
+                        opening.y
+                },
+                {
+                    x:
+                        opening.x +
+                        opening.width / 2,
+                    y:
+                        opening.y
+                },
+                {
+                    x:
+                        opening.x +
+                        opening.width / 2,
+                    y:
+                        opening.y +
+                        opening.height
+                },
+                {
+                    x:
+                        opening.x -
+                        opening.width / 2,
+                    y:
+                        opening.y +
+                        opening.height
+                }
+            ];
 
-    const shadow = mixColor(
-        skin,
-        palette.shadow,
-        0.55
-    );
+            paintPolygon(
+                points,
+                p.deepShadow,
+                0.015,
+                2,
+                structure.depth
+            );
 
-    const headPoints = [];
-
-    const segments = 64;
-
-    for (let i = 0; i < segments; i++) {
-        const a = i / segments * TAU;
-
-        const vertical =
-            Math.sin(a) *
-            face.headHeight *
-            0.5;
-
-        const horizontal =
-            Math.cos(a) *
-            face.headWidth *
-            0.5;
-
-        headPoints.push({
-            x:
-                face.cx +
-                horizontal *
-                (0.92 + rand(-0.04, 0.04)),
-            y:
-                face.cy +
-                vertical *
-                (0.96 + rand(-0.04, 0.04))
-        });
-    }
-
-    paintPolygon(
-        headPoints,
-        skin,
-        0.007,
-        3.5,
-        0.4
-    );
-
-    for (const feature of face.features) {
-        if (feature.type === "eye") {
-            for (let i = 0; i < 90; i++) {
-                const a = rand(0, TAU);
-                const r = Math.sqrt(rand());
-
-                addCircle(
-                    feature.x +
-                        Math.cos(a) *
-                        feature.size *
-                        1.7 *
-                        r,
-                    feature.y +
-                        Math.sin(a) *
-                        feature.size *
-                        0.55 *
-                        r,
-                    rand(1.5, 4),
-                    palette.shadow,
-                    rand(0.5, 1),
-                    0.1
+            if (chance(0.55)) {
+                paintLine(
+                    points[0],
+                    points[1],
+                    p.accent,
+                    rand(1, 3),
+                    0.5,
+                    structure.depth
                 );
             }
         }
 
-        if (feature.type === "nose") {
-            const points = [];
+        for (
+            const attachment
+            of structure.attachments
+        ) {
+            const end = {
+                x:
+                    attachment.x +
+                    Math.cos(
+                        attachment.angle
+                    ) *
+                    attachment.length,
 
-            for (let i = 0; i < 14; i++) {
-                points.push({
-                    x:
-                        feature.x +
-                        rand(-feature.size * 0.25, feature.size * 0.25),
-                    y:
-                        feature.y +
-                        i / 13 * feature.size
-                });
-            }
+                y:
+                    attachment.y +
+                    Math.sin(
+                        attachment.angle
+                    ) *
+                    attachment.length
+            };
 
-            paintCurve(
-                points,
-                shadow,
-                rand(2, 5),
-                0.1
-            );
-        }
-
-        if (feature.type === "mouth") {
-            const points = [];
-
-            for (let i = 0; i < 18; i++) {
-                const t = i / 17;
-
-                points.push({
-                    x:
-                        feature.x +
-                        (t - 0.5) *
-                        feature.width,
-                    y:
-                        feature.y +
-                        Math.sin(t * Math.PI) *
-                        rand(-5, 5)
-                });
-            }
-
-            paintCurve(
-                points,
-                palette.shadow,
-                rand(2, 5),
-                0.1
+            paintLine(
+                {
+                    x: attachment.x,
+                    y: attachment.y
+                },
+                end,
+                p.shadow,
+                attachment.width,
+                0.45,
+                structure.depth
             );
         }
     }
 }
 
 /* =========================================================
-   ABSTRACT PAINT
+   PAINT FIGURES
 ========================================================= */
 
-function paintAbstract(scene, palette) {
-    for (const geometry of scene.geometry) {
-        if (geometry.type !== "blob") continue;
+function paintFigures() {
+    for (
+        const face
+        of artist.scene.figures
+    ) {
+        const skin =
+            mixColor(
+                artist.palette.secondary,
+                artist.palette.highlight,
+                0.48
+            );
+
+        const points = [];
+
+        const count = 72;
+
+        for (
+            let i = 0;
+            i < count;
+            i++
+        ) {
+            const a =
+                i /
+                count *
+                TAU;
+
+            const rx =
+                face.headWidth / 2;
+
+            const ry =
+                face.headHeight / 2;
+
+            const taper =
+                0.9 +
+                0.1 *
+                Math.cos(a);
+
+            points.push({
+                x:
+                    face.cx +
+                    Math.cos(a) *
+                    rx *
+                    taper,
+
+                y:
+                    face.cy +
+                    Math.sin(a) *
+                    ry
+            });
+        }
 
         paintPolygon(
-            geometry.points,
-            pick(palette.colors),
-            0.0035,
-            rand(2, 8),
-            rand(0.1, 0.8)
+            points,
+            skin,
+            0.007,
+            3.5,
+            0.3
         );
+
+        for (
+            const feature
+            of face.features
+        ) {
+            if (
+                feature.type ===
+                "eye"
+            ) {
+                paintEye(
+                    feature,
+                    face
+                );
+            }
+
+            if (
+                feature.type ===
+                "nose"
+            ) {
+                paintNose(
+                    feature,
+                    face
+                );
+            }
+
+            if (
+                feature.type ===
+                "mouth"
+            ) {
+                paintMouth(
+                    feature,
+                    face
+                );
+            }
+        }
     }
 
-    for (const stroke of scene.strokes) {
-        paintCurve(
-            stroke.points,
-            pick(palette.colors),
-            stroke.width,
+    for (
+        const mass
+        of artist.scene.masses
+    ) {
+        if (
+            mass.type !==
+            "shoulders"
+        ) continue;
+
+        paintPolygon(
+            mass.points,
+            artist.palette.secondary,
+            0.004,
+            3,
+            0.4
+        );
+    }
+}
+
+function paintEye(
+    feature,
+    face
+) {
+    const dark =
+        artist.palette.deepShadow;
+
+    const points = [];
+
+    for (
+        let i = 0;
+        i <= 20;
+        i++
+    ) {
+        const t =
+            i / 20;
+
+        points.push({
+            x:
+                feature.x +
+                (t - 0.5) *
+                feature.width,
+
+            y:
+                feature.y +
+                Math.sin(t * Math.PI) *
+                feature.height
+        });
+    }
+
+    paintLine(
+        points[0],
+        points[20],
+        dark,
+        2.4,
+        0.6,
+        0.1
+    );
+
+    for (
+        let i = 0;
+        i < 45;
+        i++
+    ) {
+        const a =
+            rand(0, TAU);
+
+        const r =
+            Math.sqrt(
+                rand()
+            ) *
+            feature.height;
+
+        addPigment(
+            feature.x +
+                Math.cos(a) *
+                feature.width *
+                0.3,
+
+            feature.y +
+                Math.sin(a) *
+                r,
+
+            rand(1, 3),
+
+            dark,
+            rand(0.5, 1),
+            0.1
+        );
+    }
+}
+
+function paintNose(
+    feature,
+    face
+) {
+    const points = [];
+
+    for (
+        let i = 0;
+        i < 18;
+        i++
+    ) {
+        const t =
+            i / 17;
+
+        points.push({
+            x:
+                feature.x +
+                Math.sin(t * Math.PI) *
+                rand(-5, 5),
+
+            y:
+                feature.y +
+                t *
+                feature.length
+        });
+    }
+
+    paintLine(
+        points[0],
+        points[points.length - 1],
+        artist.palette.shadow,
+        rand(2, 5),
+        0.4,
+        0.1
+    );
+}
+
+function paintMouth(
+    feature,
+    face
+) {
+    const points = [];
+
+    for (
+        let i = 0;
+        i < 25;
+        i++
+    ) {
+        const t =
+            i / 24;
+
+        points.push({
+            x:
+                feature.x +
+                (t - 0.5) *
+                feature.width,
+
+            y:
+                feature.y +
+                Math.sin(
+                    t * Math.PI
+                ) *
+                rand(-3, 3)
+        });
+    }
+
+    paintLine(
+        points[0],
+        points[points.length - 1],
+        artist.palette.shadow,
+        rand(2, 4),
+        0.45,
+        0.1
+    );
+}
+
+/* =========================================================
+   PAINT ABSTRACT
+========================================================= */
+
+function paintAbstract() {
+    for (
+        const mass
+        of artist.scene.masses
+    ) {
+        if (
+            mass.type !==
+            "abstract"
+        ) continue;
+
+        paintPolygon(
+            mass.points,
+            pick([
+                artist.palette.dominant,
+                artist.palette.secondary,
+                artist.palette.accent
+            ]),
+            0.004,
+            rand(2, 7),
             rand(0.2, 0.8)
         );
     }
-}
 
-/* =========================================================
-   LIGHTING PASS
-========================================================= */
-
-function applyLighting(scene, palette, idea) {
-    const source = scene.lights[0];
-
-    if (!source) return;
-
-    for (const p of state.paint) {
-        const dx = source.x - p.x;
-        const dy = source.y - p.y;
-        const d = Math.hypot(dx, dy);
-
-        const light =
-            clamp(
-                1 -
-                d / source.radius
-            ) *
-            source.intensity;
-
-        const amount =
-            (light - 0.35) *
-            35;
-
-        p.color = adjustColor(
-            p.color,
-            amount
+    for (
+        const stroke
+        of artist.scene.strokes
+    ) {
+        paintLine(
+            stroke.a,
+            stroke.b,
+            artist.palette.accent,
+            stroke.width,
+            0.4,
+            0.5
         );
-
-        if (source.warm > 0.5 && light > 0.25) {
-            p.color = mixColor(
-                p.color,
-                {
-                    r: 255,
-                    g: 185,
-                    b: 120
-                },
-                light * 0.12
-            );
-        }
     }
 }
 
 /* =========================================================
-   DETAIL PASS
+   STRUCTURAL DETAIL PASS
 ========================================================= */
 
-function addDetails(scene, palette, idea) {
-    const detailCount = Math.floor(
-        800 +
-        idea.complexity * 6000
-    );
+function addStructuralDetails() {
+    const scene =
+        artist.scene;
 
-    for (let i = 0; i < detailCount; i++) {
+    const amount =
+        700 +
+        Math.floor(
+            artist.idea.complexity *
+            5000
+        );
+
+    for (
+        let i = 0;
+        i < amount;
+        i++
+    ) {
         let x;
         let y;
 
-        if (scene.focal) {
-            x = lerp(
-                scene.focal.x - WIDTH * 0.45,
-                scene.focal.x + WIDTH * 0.45,
-                rand()
-            );
+        if (
+            artist.composition
+        ) {
+            const c =
+                artist.composition;
 
-            y = lerp(
-                scene.focal.y - HEIGHT * 0.45,
-                scene.focal.y + HEIGHT * 0.45,
-                rand()
-            );
-        } else {
-            x = rand(0, WIDTH);
-            y = rand(0, HEIGHT);
+            const region =
+                chance(0.62);
+
+            if (region) {
+                x =
+                    c.focalX +
+                    rand(
+                        -320,
+                        320
+                    );
+
+                y =
+                    c.focalY +
+                    rand(
+                        -280,
+                        280
+                    );
+            } else {
+                x =
+                    rand(0, WIDTH);
+
+                y =
+                    rand(0, HEIGHT);
+            }
         }
 
-        const nearest =
-            state.paint.length
-                ? state.paint[
-                    Math.floor(
-                        rand(0, state.paint.length)
-                    )
-                ]
-                : null;
+        let role =
+            pick([
+                "dominant",
+                "secondary",
+                "secondary",
+                "accent"
+            ]);
 
-        const color = nearest
-            ? adjustColor(
-                nearest.color,
-                rand(-15, 15)
-            )
-            : pick(palette.colors);
+        if (
+            chance(0.15)
+        ) {
+            role =
+                "highlight";
+        }
 
-        addCircle(
+        const color =
+            chooseSurfaceColor(
+                role,
+                x,
+                y,
+                1
+            );
+
+        addPigment(
             x,
             y,
             rand(
@@ -1574,245 +2959,196 @@ function addDetails(scene, palette, idea) {
                 3.8
             ),
             color,
-            rand(0.08, 0.38),
-            rand(0.4, 1)
+            rand(
+                0.12,
+                0.48
+            ),
+            rand(
+                0.3,
+                1
+            )
         );
     }
 }
 
 /* =========================================================
-   SELF EVALUATION
+   COLOUR CORRECTION
 ========================================================= */
 
-function evaluateArtwork() {
-    if (!state.paint.length) return 0;
+function colourCorrection() {
+    const p =
+        artist.pigment;
 
-    let densityVariance = 0;
-    let averageRadius = 0;
+    if (!p.length) return;
 
-    for (const p of state.paint) {
-        averageRadius += p.radius;
+    for (const pigment of p) {
+        const light =
+            lightingAt(
+                pigment.x,
+                pigment.y
+            );
+
+        let color =
+            pigment.color;
+
+        const local =
+            luminance(color);
+
+        if (
+            light > 0.7 &&
+            local < 0.35
+        ) {
+            color =
+                mixColor(
+                    color,
+                    artist.palette.highlight,
+                    0.18
+                );
+        }
+
+        if (
+            light < 0.15 &&
+            local > 0.7
+        ) {
+            color =
+                mixColor(
+                    color,
+                    artist.palette.shadow,
+                    0.2
+                );
+        }
+
+        pigment.color =
+            shiftColor(
+                color,
+                rand(-3.5, 3.5),
+                rand(0.96, 1.04),
+                rand(-2.5, 2.5)
+            );
     }
-
-    averageRadius /= state.paint.length;
-
-    const sampleCount = Math.min(
-        5000,
-        state.paint.length
-    );
-
-    const bins = new Array(36).fill(0);
-
-    for (let i = 0; i < sampleCount; i++) {
-        const p =
-            state.paint[
-                Math.floor(
-                    rand(0, state.paint.length)
-                )
-            ];
-
-        const bx = Math.floor(
-            clamp(
-                p.x / WIDTH,
-                0,
-                0.999
-            ) * 6
-        );
-
-        const by = Math.floor(
-            clamp(
-                p.y / HEIGHT,
-                0,
-                0.999
-            ) * 6
-        );
-
-        bins[by * 6 + bx]++;
-    }
-
-    const mean =
-        sampleCount / bins.length;
-
-    for (const b of bins) {
-        densityVariance +=
-            Math.abs(b - mean);
-    }
-
-    densityVariance /=
-        sampleCount;
-
-    const radiusScore =
-        clamp(
-            averageRadius / 8,
-            0,
-            1
-        );
-
-    const densityScore =
-        1 - clamp(
-            densityVariance,
-            0,
-            1
-        );
-
-    return (
-        densityScore * 0.55 +
-        radiusScore * 0.45
-    );
 }
 
 /* =========================================================
-   PAINT STAGES
+   FINAL EDGE PASS
 ========================================================= */
 
-function prepareArtwork() {
-    state.paint = [];
-    state.strokes = [];
-    state.totalCircles = 0;
+function finalEdges() {
+    const scene =
+        artist.scene;
 
-    state.idea = generateIdea();
-    state.palette = makePalette(state.idea);
-    state.scene = createScene(state.idea);
+    for (
+        const structure
+        of scene.structures
+    ) {
+        for (
+            const level
+            of structure.levels
+        ) {
+            const left = {
+                x:
+                    level.x -
+                    level.width / 2,
 
-    titleEl.textContent =
-        generateTitle(state.idea, state.scene);
+                y:
+                    level.y
+            };
 
-    compositionEl.textContent =
-        describeComposition(
-            state.idea,
-            state.scene
-        );
+            const right = {
+                x:
+                    level.x +
+                    level.width / 2,
 
-    paletteEl.textContent =
-        state.palette.scheme.toUpperCase();
+                y:
+                    level.y
+            };
 
-    seedEl.textContent =
-        activeSeed;
+            paintLine(
+                left,
+                right,
+                artist.palette.highlight,
+                rand(1, 2.8),
+                0.65,
+                structure.depth
+            );
+        }
+    }
 
-    circlesEl.textContent = "0";
+    for (
+        const mountain
+        of scene.masses
+    ) {
+        if (
+            mountain.type !==
+            "mountain"
+        ) continue;
 
-    ctx.fillStyle = "#050505";
+        for (
+            let i = 1;
+            i <
+            mountain.points.length;
+            i++
+        ) {
+            if (
+                chance(0.15)
+            ) {
+                paintLine(
+                    mountain.points[i - 1],
+                    mountain.points[i],
+                    artist.palette.highlight,
+                    rand(1, 3),
+                    0.5,
+                    mountain.depth
+                );
+            }
+        }
+    }
+}
+
+/* =========================================================
+   RENDER
+========================================================= */
+
+function render(count) {
+    ctx.fillStyle =
+        "#050505";
+
     ctx.fillRect(
         0,
         0,
         WIDTH,
         HEIGHT
     );
-}
-
-function generateTitle(idea, scene) {
-    const words = [
-        "Silent",
-        "Forgotten",
-        "Endless",
-        "Distant",
-        "Hollow",
-        "Hidden",
-        "Fading",
-        "Strange",
-        "Quiet",
-        "Unknown",
-        "Dreaming",
-        "Ancient",
-        "Solitary",
-        "Unfamiliar",
-        "Weightless"
-    ];
-
-    const nouns = [
-        "Horizon",
-        "Valley",
-        "Structure",
-        "Figure",
-        "Garden",
-        "Passage",
-        "Mountain",
-        "Landscape",
-        "Form",
-        "World",
-        "Memory",
-        "Place",
-        "Object",
-        "Sky",
-        "Terrain"
-    ];
-
-    return `${pick(words)} ${pick(nouns)}`;
-}
-
-function describeComposition(idea, scene) {
-    const parts = [];
-
-    if (idea.depth > 0.6) {
-        parts.push("deep spatial layering");
-    }
-
-    if (idea.symmetry > 0.7) {
-        parts.push("strong bilateral balance");
-    }
-
-    if (idea.branching > 0.65) {
-        parts.push("branching organic structures");
-    }
-
-    if (idea.horizontality > 0.65) {
-        parts.push("broad horizontal masses");
-    }
-
-    if (idea.verticality > 0.65) {
-        parts.push("strong vertical movement");
-    }
-
-    if (idea.atmosphere > 0.65) {
-        parts.push("atmospheric depth");
-    }
-
-    if (!parts.length) {
-        parts.push("asymmetrical visual balance");
-    }
-
-    return parts.slice(0, 3).join(" · ");
-}
-
-/* =========================================================
-   REAL-TIME RENDERING
-========================================================= */
-
-function clearCanvas() {
-    ctx.fillStyle = "#050505";
-    ctx.fillRect(
-        0,
-        0,
-        WIDTH,
-        HEIGHT
-    );
-}
-
-function renderVisiblePaint(count) {
-    clearCanvas();
 
     const visible =
-        state.paint.slice(
+        artist.pigment.slice(
             0,
-            Math.min(
-                count,
-                state.paint.length
-            )
+            count
         );
 
     visible.sort(
         (a, b) =>
-            a.depth - b.depth
+            a.depth -
+            b.depth
     );
 
-    for (const p of visible) {
+    for (
+        const p
+        of visible
+    ) {
         ctx.beginPath();
 
         ctx.globalAlpha =
-            clamp(p.alpha, 0, 1);
+            clamp(
+                p.alpha,
+                0,
+                1
+            );
 
         ctx.fillStyle =
-            rgba(p.color, 1);
+            rgba(
+                p.color,
+                1
+            );
 
         ctx.arc(
             p.x,
@@ -1828,215 +3164,371 @@ function renderVisiblePaint(count) {
     ctx.globalAlpha = 1;
 
     circlesEl.textContent =
-        visible.length.toLocaleString();
+        count.toLocaleString();
 }
 
-function runStage(index) {
-    state.stage = index;
+/* =========================================================
+   PAINTING PASSES
+========================================================= */
 
-    if (index === 0) {
-        state.paint = [];
+function buildPigment() {
+    artist.pigment = [];
 
-        paintBackground(
-            state.scene,
-            state.palette,
-            state.idea
-        );
-    }
+    paintBackground();
 
-    if (index === 1) {
-        paintClouds(
-            state.scene,
-            state.palette,
-            state.idea
-        );
+    paintClouds();
 
-        paintMountains(
-            state.scene,
-            state.palette,
-            state.idea
-        );
-    }
+    paintMountains();
 
-    if (index === 2) {
-        paintTerrain(
-            state.scene,
-            state.palette,
-            state.idea
-        );
+    paintTerrain();
 
-        paintTrees(
-            state.scene,
-            state.palette,
-            state.idea
-        );
+    paintStructures();
 
-        paintConstructed(
-            state.scene,
-            state.palette,
-            state.idea
-        );
+    paintFigures();
 
-        paintAbstract(
-            state.scene,
-            state.palette
-        );
-    }
+    paintVegetation();
 
-    if (index === 3) {
-        applyLighting(
-            state.scene,
-            state.palette,
-            state.idea
-        );
+    paintAbstract();
 
-        addDetails(
-            state.scene,
-            state.palette,
-            state.idea
-        );
-    }
+    addStructuralDetails();
 
-    if (index === 4) {
-        addDetails(
-            state.scene,
-            state.palette,
-            {
-                ...state.idea,
-                complexity: Math.min(
-                    1,
-                    state.idea.complexity + 0.35
-                )
-            }
-        );
-    }
+    colourCorrection();
+
+    finalEdges();
+
+    artist.pigment.sort(
+        (a, b) =>
+            a.depth -
+            b.depth
+    );
 }
 
-function animatePainting() {
-    if (!painting) return;
+function phaseName(n) {
+    const names = [
+        "SKETCHING",
+        "BUILDING FORMS",
+        "BLOCKING COLOUR",
+        "PAINTING STRUCTURE",
+        "LIGHTING",
+        "DETAILING",
+        "FINISHING"
+    ];
 
-    const stages = 5;
+    return names[
+        Math.min(
+            names.length - 1,
+            n
+        )
+    ];
+}
 
-    if (state.stage >= stages) {
-        painting = false;
-
-        renderVisiblePaint(
-            state.paint.length
-        );
-
-        evaluateArtwork();
-
+function animatePainting(token) {
+    if (
+        !painting ||
+        token !== generationToken
+    ) {
         return;
     }
 
-    runStage(state.stage);
+    const phases = [
+        {
+            from: 0,
+            to: 0.12,
+            duration: 1100
+        },
+        {
+            from: 0.12,
+            to: 0.27,
+            duration: 1300
+        },
+        {
+            from: 0.27,
+            to: 0.52,
+            duration: 1700
+        },
+        {
+            from: 0.52,
+            to: 0.72,
+            duration: 1500
+        },
+        {
+            from: 0.72,
+            to: 0.84,
+            duration: 1200
+        },
+        {
+            from: 0.84,
+            to: 0.96,
+            duration: 1800
+        },
+        {
+            from: 0.96,
+            to: 1,
+            duration: 1200
+        }
+    ];
+
+    const phase =
+        phases[artist.phase];
+
+    if (!phase) {
+        painting = false;
+        render(
+            artist.pigment.length
+        );
+        return;
+    }
 
     const start =
-        state.totalCircles;
+        Math.floor(
+            artist.pigment.length *
+            phase.from
+        );
 
     const end =
-        state.paint.length;
-
-    const duration =
-        state.stage === 0
-            ? 1100
-            : state.stage === 1
-                ? 1300
-                : state.stage === 2
-                    ? 1700
-                    : 1800;
+        Math.floor(
+            artist.pigment.length *
+            phase.to
+        );
 
     const startTime =
         performance.now();
 
     function frame(now) {
-        if (!painting) return;
+        if (
+            !painting ||
+            token !== generationToken
+        ) {
+            return;
+        }
 
-        const progress =
+        const t =
             clamp(
                 (now - startTime) /
-                duration,
-                0,
-                1
+                phase.duration
             );
 
         const eased =
-            smooth(progress);
+            smooth(t);
 
         const count =
             Math.floor(
-                start +
-                (end - start) *
-                eased
+                lerp(
+                    start,
+                    end,
+                    eased
+                )
             );
 
-        renderVisiblePaint(count);
+        render(count);
 
-        if (progress < 1) {
-            requestAnimationFrame(frame);
+        if (t < 1) {
+            requestAnimationFrame(
+                frame
+            );
         } else {
-            state.totalCircles =
-                end;
-
-            state.stage++;
+            artist.phase++;
 
             setTimeout(
-                animatePainting,
-                120
+                () =>
+                    animatePainting(
+                        token
+                    ),
+                100
             );
         }
     }
 
-    requestAnimationFrame(frame);
+    requestAnimationFrame(
+        frame
+    );
 }
 
 /* =========================================================
-   GENERATION
+   ARTIST
 ========================================================= */
 
-function generateArtwork(seed = randomSeed()) {
-    if (painting) {
-        painting = false;
+function generateArtwork(
+    newSeed = randomSeed()
+) {
+    generationToken++;
 
-        if (paintTimer) {
-            clearTimeout(paintTimer);
-        }
-    }
+    const token =
+        generationToken;
 
-    activeSeed = seed >>> 0;
-    state.rng = mulberry32(
-        activeSeed
-    );
+    painting = false;
 
-    prepareArtwork();
+    seed =
+        newSeed >>> 0;
+
+    rng =
+        mulberry32(seed);
+
+    artist.idea =
+        generateIdea();
+
+    artist.composition =
+        createComposition(
+            artist.idea
+        );
+
+    artist.palette =
+        createPalette(
+            artist.idea
+        );
+
+    buildWorld();
+
+    buildPigment();
+
+    artist.phase = 0;
+
+    titleEl.textContent =
+        generateTitle();
+
+    seedEl.textContent =
+        seed;
+
+    compositionEl.textContent =
+        describeComposition();
+
+    paletteEl.textContent =
+        artist.palette.scheme
+            .toUpperCase();
+
+    circlesEl.textContent =
+        "0";
+
+    render(0);
 
     painting = true;
-    state.stage = 0;
-    state.totalCircles = 0;
 
-    animatePainting();
+    animatePainting(
+        token
+    );
 }
 
 /* =========================================================
-   SAVE
+   TITLE / DESCRIPTION
 ========================================================= */
 
-function saveArtwork() {
-    const link =
-        document.createElement("a");
+function generateTitle() {
+    const first = [
+        "Silent",
+        "Forgotten",
+        "Endless",
+        "Distant",
+        "Hollow",
+        "Hidden",
+        "Fading",
+        "Unfamiliar",
+        "Ancient",
+        "Solitary",
+        "Weightless",
+        "Quiet",
+        "Immense",
+        "Wandering",
+        "Unseen",
+        "Eternal"
+    ];
 
-    const safeTitle =
-        titleEl.textContent
-            .replace(/[^a-z0-9]+/gi, "_")
-            .replace(/^_+|_+$/g, "");
+    const second = [
+        "Horizon",
+        "Valley",
+        "Structure",
+        "Figure",
+        "Garden",
+        "Passage",
+        "Mountain",
+        "Landscape",
+        "Form",
+        "World",
+        "Memory",
+        "Place",
+        "Terrain",
+        "Architecture",
+        "Dream",
+        "Field"
+    ];
 
-    link.download =
-        `${safeTitle}_${activeSeed}.png`;
+    return (
+        pick(first) +
+        " " +
+        pick(second)
+    );
+}
 
-    link.href =
-        canvas.toDataURL("image/png");
+function describeComposition() {
+    const i =
+        artist.idea;
 
-    link.click();
+    const pieces = [];
+
+    if (
+        i.depth > 0.6
+    ) {
+        pieces.push(
+            "deep spatial layering"
+        );
+    }
+
+    if (
+        i.symmetry > 0.65
+    ) {
+        pieces.push(
+            "balanced structural symmetry"
+        );
+    }
+
+    if (
+        i.branching > 0.6
+    ) {
+        pieces.push(
+            "branching forms"
+        );
+    }
+
+    if (
+        i.horizontality > 0.6
+    ) {
+        pieces.push(
+            "broad horizontal masses"
+        );
+    }
+
+    if (
+        i.verticality > 0.6
+    ) {
+        pieces.push(
+            "strong vertical structure"
+        );
+    }
+
+    if (
+        i.atmosphere > 0.6
+    ) {
+        pieces.push(
+            "atmospheric separation"
+        );
+    }
+
+    if (
+        i.perspective > 0.65
+    ) {
+        pieces.push(
+            "strong perspective"
+        );
+    }
+
+    if (!pieces.length) {
+        pieces.push(
+            "asymmetrical visual balance"
+        );
+    }
+
+    return pieces
+        .slice(0, 4)
+        .join(" · ");
 }
 
 /* =========================================================
@@ -2052,7 +3544,33 @@ generateBtn.addEventListener(
 
 saveBtn.addEventListener(
     "click",
-    saveArtwork
+    () => {
+        const link =
+            document.createElement(
+                "a"
+            );
+
+        const name =
+            titleEl.textContent
+                .replace(
+                    /[^a-z0-9]+/gi,
+                    "_"
+                )
+                .replace(
+                    /^_+|_+$/g,
+                    ""
+                );
+
+        link.download =
+            `${name}_${seed}.png`;
+
+        link.href =
+            canvas.toDataURL(
+                "image/png"
+            );
+
+        link.click();
+    }
 );
 
 generateArtwork();
