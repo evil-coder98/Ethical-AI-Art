@@ -2,112 +2,186 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>THE IMAGE LIBRARY</title>
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1, maximum-scale=1"
+    >
+    <title>IMAGE LIBRARY</title>
     <link rel="stylesheet" href="style.css">
 </head>
+
 <body>
 
 <div id="app">
 
     <header>
-        <div class="logo">THE IMAGE LIBRARY</div>
-        <div class="subtitle">EVERY POSSIBLE IMAGE EXISTS SOMEWHERE</div>
+        <div class="logo">IMAGE LIBRARY</div>
+        <div class="subtitle">
+            EVERY POSSIBLE IMAGE EXISTS SOMEWHERE
+        </div>
     </header>
 
     <main>
 
-        <section id="homeScreen" class="screen active">
+        <section id="homeScreen" class="screen">
 
             <div class="hero">
-                <h1>THE IMAGE LIBRARY</h1>
+                <div class="eyebrow">THE LIBRARY OF IMAGES</div>
+
+                <h1>EVERY IMAGE.</h1>
+                <h1>EVERYWHERE.</h1>
+
                 <p>
-                    An infinite mathematical library containing every possible
-                    finite-resolution RGB image.
+                    A mathematical library containing every possible
+                    finite RGB image.
                 </p>
             </div>
 
-            <div class="cards">
+            <div class="mainActions">
 
-                <button class="menuCard" id="uploadButton">
-                    <span class="cardTitle">UPLOAD IMAGE</span>
-                    <span class="cardDescription">
-                        Find the exact mathematical coordinates of an image.
+                <button id="uploadButton" class="mainButton">
+                    <strong>UPLOAD AN IMAGE</strong>
+                    <span>
+                        Find its exact location in the library.
                     </span>
                 </button>
 
-                <button class="menuCard" id="coordinateButton">
-                    <span class="cardTitle">ENTER COORDINATES</span>
-                    <span class="cardDescription">
-                        Travel directly to an image's location.
+                <button id="randomButton" class="mainButton">
+                    <strong>EXPLORE A RANDOM IMAGE</strong>
+                    <span>
+                        Open a random location in the infinite library.
                     </span>
                 </button>
 
-                <button class="menuCard" id="randomButton">
-                    <span class="cardTitle">RANDOM IMAGE</span>
-                    <span class="cardDescription">
-                        Open a completely arbitrary location in the library.
+                <button id="coordinateButton" class="mainButton">
+                    <strong>GO TO AN ADDRESS</strong>
+                    <span>
+                        Enter coordinates and reconstruct the image.
                     </span>
                 </button>
 
-                <button class="menuCard" id="archiveButton">
-                    <span class="cardTitle">DISCOVERED ARCHIVE</span>
-                    <span class="cardDescription">
-                        Browse images you have previously discovered.
+                <button id="archiveButton" class="mainButton">
+                    <strong>MY DISCOVERED IMAGES</strong>
+                    <span>
+                        View images you have saved.
                     </span>
                 </button>
 
             </div>
 
-            <input id="fileInput" type="file" accept="image/*" hidden>
+            <input
+                id="fileInput"
+                type="file"
+                accept="image/png,image/jpeg,image/webp,image/gif"
+                hidden
+            >
 
-            <div class="libraryFacts">
-                <div>
-                    <strong>∞</strong>
-                    <span>possible dimensions</span>
+            <div class="howItWorks">
+
+                <div class="howTitle">HOW IT WORKS</div>
+
+                <div class="steps">
+
+                    <div class="step">
+                        <div class="stepNumber">01</div>
+                        <strong>IMAGE</strong>
+                        <span>
+                            An image is converted into its raw RGB pixels.
+                        </span>
+                    </div>
+
+                    <div class="step">
+                        <div class="stepNumber">02</div>
+                        <strong>ADDRESS</strong>
+                        <span>
+                            Those pixels mathematically define one exact location.
+                        </span>
+                    </div>
+
+                    <div class="step">
+                        <div class="stepNumber">03</div>
+                        <strong>RECONSTRUCTION</strong>
+                        <span>
+                            The address can recreate the exact same pixels.
+                        </span>
+                    </div>
+
                 </div>
-                <div>
-                    <strong>∞</strong>
-                    <span>possible images</span>
-                </div>
-                <div>
-                    <strong>0</strong>
-                    <span>images required to store the library</span>
-                </div>
+
             </div>
 
         </section>
 
+
         <section id="viewerScreen" class="screen">
 
-            <div class="topBar">
-                <button id="backButton">← BACK</button>
-                <div class="locationTitle">IMAGE LOCATION</div>
-                <button id="randomViewerButton">RANDOM</button>
+            <div class="viewerTop">
+
+                <button id="backButton" class="smallButton">
+                    ← LIBRARY
+                </button>
+
+                <div class="viewerTitle">
+                    IMAGE LOCATION
+                </div>
+
+                <button id="randomViewerButton" class="smallButton">
+                    RANDOM →
+                </button>
+
             </div>
 
-            <div class="viewer">
 
-                <div class="imagePanel">
+            <div class="viewerLayout">
+
+                <div class="imageArea">
+
                     <div class="imageFrame">
                         <canvas id="imageCanvas"></canvas>
                     </div>
 
-                    <div class="imageControls">
-                        <button id="previousButton">← PREVIOUS</button>
-                        <button id="nextButton">NEXT →</button>
+                    <div class="navigation">
+                        <button id="previousButton">
+                            ← PREVIOUS IMAGE
+                        </button>
+
+                        <button id="nextButton">
+                            NEXT IMAGE →
+                        </button>
                     </div>
+
                 </div>
 
-                <div class="informationPanel">
 
-                    <div class="infoSection">
-                        <div class="label">DIMENSIONS</div>
-                        <div id="dimensionsValue" class="value">—</div>
+                <aside class="details">
+
+                    <div class="status">
+                        <div class="statusDot"></div>
+                        <span>IMAGE LOCATED</span>
                     </div>
 
-                    <div class="infoSection">
-                        <div class="label">COORDINATES</div>
+
+                    <div class="detailSection">
+
+                        <div class="detailLabel">
+                            DIMENSIONS
+                        </div>
+
+                        <div
+                            id="dimensionsValue"
+                            class="dimensionValue"
+                        >
+                            —
+                        </div>
+
+                    </div>
+
+
+                    <div class="detailSection">
+
+                        <div class="detailLabel">
+                            EXACT LIBRARY ADDRESS
+                        </div>
 
                         <textarea
                             id="coordinateValue"
@@ -115,119 +189,221 @@
                             spellcheck="false"
                         ></textarea>
 
-                        <button id="copyCoordinateButton">
-                            COPY COORDINATES
+                        <button
+                            id="copyCoordinateButton"
+                            class="actionButton"
+                        >
+                            COPY ADDRESS
                         </button>
+
                     </div>
 
-                    <div class="infoSection">
-                        <div class="label">LIBRARY LOCATION</div>
-                        <div id="locationValue" class="locationValue">
+
+                    <div class="detailSection">
+
+                        <div class="detailLabel">
+                            LOCATION DATA
+                        </div>
+
+                        <div
+                            id="locationValue"
+                            class="locationData"
+                        >
                             —
                         </div>
+
                     </div>
 
-                    <div class="infoSection">
-                        <button id="downloadButton" class="wideButton">
+
+                    <div class="detailActions">
+
+                        <button
+                            id="downloadButton"
+                            class="actionButton"
+                        >
                             DOWNLOAD IMAGE
                         </button>
 
-                        <button id="saveArchiveButton" class="wideButton">
-                            SAVE TO ARCHIVE
+                        <button
+                            id="saveArchiveButton"
+                            class="actionButton"
+                        >
+                            SAVE TO MY ARCHIVE
                         </button>
 
-                        <button id="similarButton" class="wideButton">
+                        <button
+                            id="similarButton"
+                            class="actionButton"
+                        >
                             FIND SIMILAR IMAGES
                         </button>
+
                     </div>
 
-                </div>
+                </aside>
 
             </div>
 
         </section>
 
+
         <section id="coordinateScreen" class="screen">
 
-            <div class="topBar">
-                <button id="coordinateBackButton">← BACK</button>
-                <div class="locationTitle">TRAVEL TO LOCATION</div>
+            <div class="viewerTop">
+
+                <button
+                    id="coordinateBackButton"
+                    class="smallButton"
+                >
+                    ← LIBRARY
+                </button>
+
+                <div class="viewerTitle">
+                    TRAVEL TO ADDRESS
+                </div>
+
+                <div></div>
+
             </div>
 
-            <div class="coordinateBox">
 
-                <h2>ENTER IMAGE COORDINATES</h2>
+            <div class="addressBox">
+
+                <div class="eyebrow">
+                    LIBRARY NAVIGATION
+                </div>
+
+                <h2>
+                    ENTER AN IMAGE ADDRESS
+                </h2>
 
                 <p>
-                    Coordinates identify an exact image in the mathematical
-                    library. They can be copied and shared.
+                    Paste an address generated by this library.
+                    The image will be reconstructed entirely from
+                    the address.
                 </p>
 
                 <textarea
                     id="coordinateInput"
-                    placeholder="ILB1:WIDTHxHEIGHT:PIXELS"
                     spellcheck="false"
+                    placeholder="ILB1:..."
                 ></textarea>
 
-                <button id="openCoordinateButton" class="primaryButton">
-                    OPEN LOCATION
+                <button
+                    id="openCoordinateButton"
+                    class="largeAction"
+                >
+                    OPEN IMAGE
                 </button>
 
-                <div id="coordinateError" class="error"></div>
+                <div
+                    id="coordinateError"
+                    class="error"
+                ></div>
 
             </div>
 
         </section>
+
 
         <section id="archiveScreen" class="screen">
 
-            <div class="topBar">
-                <button id="archiveBackButton">← BACK</button>
-                <div class="locationTitle">DISCOVERED ARCHIVE</div>
+            <div class="viewerTop">
+
+                <button
+                    id="archiveBackButton"
+                    class="smallButton"
+                >
+                    ← LIBRARY
+                </button>
+
+                <div class="viewerTitle">
+                    MY DISCOVERED IMAGES
+                </div>
+
+                <div></div>
+
             </div>
 
-            <div id="archiveGrid" class="archiveGrid"></div>
+            <div
+                id="archiveGrid"
+                class="archiveGrid"
+            ></div>
 
-            <div id="emptyArchive" class="emptyArchive">
-                No images have been discovered yet.
+            <div
+                id="emptyArchive"
+                class="emptyState"
+            >
+                You have not discovered any images yet.
             </div>
 
         </section>
 
+
         <section id="similarScreen" class="screen">
 
-            <div class="topBar">
-                <button id="similarBackButton">← BACK</button>
-                <div class="locationTitle">SIMILAR IMAGES</div>
+            <div class="viewerTop">
+
+                <button
+                    id="similarBackButton"
+                    class="smallButton"
+                >
+                    ← IMAGE
+                </button>
+
+                <div class="viewerTitle">
+                    SIMILAR IMAGES
+                </div>
+
+                <div></div>
+
             </div>
 
-            <div class="similarHeader">
-                <h2>VISUAL NEIGHBOURS</h2>
+            <div class="similarIntro">
+
+                <div class="eyebrow">
+                    VISUAL SEARCH
+                </div>
+
+                <h2>
+                    NEARBY DISCOVERIES
+                </h2>
+
                 <p>
-                    These images are mathematically different locations,
-                    but visually similar to the selected image.
+                    These are images from your archive that have
+                    similar pixel structure.
                 </p>
+
             </div>
 
-            <div id="similarGrid" class="similarGrid"></div>
+            <div
+                id="similarGrid"
+                class="archiveGrid"
+            ></div>
 
-            <div id="noSimilar" class="emptyArchive">
-                No similar discovered images were found.
-                Save more images to the archive to expand the search.
+            <div
+                id="noSimilar"
+                class="emptyState"
+            >
+                There are not enough discovered images to perform
+                a similarity search yet.
             </div>
 
         </section>
 
     </main>
 
+
     <footer>
-        THE IMAGE LIBRARY · A MATHEMATICAL ARCHIVE
+        IMAGE LIBRARY · ILB1
     </footer>
 
 </div>
 
+
 <div id="toast"></div>
 
 <script src="game.js"></script>
+
 </body>
 </html>
