@@ -1,75 +1,108 @@
 const canvas = document.getElementById("canvas");
 const ctx = canvas.getContext("2d", { alpha: false });
-const titleElement = document.getElementById("title");
-const seedElement = document.getElementById("seed");
-const compositionElement = document.getElementById("composition");
-const paletteElement = document.getElementById("palette");
-const circlesElement = document.getElementById("circles");
+
+const titleEl = document.getElementById("title");
+const seedEl = document.getElementById("seed");
+const compositionEl = document.getElementById("composition");
+const paletteEl = document.getElementById("palette");
+const circlesEl = document.getElementById("circles");
+const generateBtn = document.getElementById("generate");
+const saveBtn = document.getElementById("save");
+
 const WIDTH = 1200;
 const HEIGHT = 900;
-const TAU = Math.PI * 2;
-let currentArtwork = null;
-function randomSeed() {
-    return Math.floor(Math.random() * 2147483647);
-}
+
+canvas.width = WIDTH;
+canvas.height = HEIGHT;
+
+let circles = [];
+let currentSeed = 0;
+let currentTitle = "";
+
 function rng(seed) {
-    let s = seed >>> 0;
+    let x = seed >>> 0;
+
     return function () {
-        s += 0x6D2B79F5;
-        let t = s;
-        t = Math.imul(t ^ t >>> 15, t | 1);
-        t ^= t + Math.imul(t ^ t >>> 7, t | 61);
-        return ((t ^ t >>> 14) >>> 0) / 4294967296;
+        x += 0x6D2B79F5;
+
+        let t = x;
+
+        t = Math.imul(t ^ (t >>> 15), t | 1);
+        t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+
+        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
     };
 }
-function range(r, a, b) {
+
+function randomSeed() {
+    return Math.floor(Math.random() * 4294967295);
+}
+
+function rand(r, a, b) {
     return a + r() * (b - a);
 }
-function integer(r, a, b) {
-    return Math.floor(range(r, a, b + 1));
+
+function int(r, a, b) {
+    return Math.floor(rand(r, a, b + 1));
 }
-function chance(r, n) {
-    return r() < n;
-}
+
 function clamp(v, a, b) {
     return Math.max(a, Math.min(b, v));
 }
+
 function lerp(a, b, t) {
     return a + (b - a) * t;
 }
+
+function distance(x1, y1, x2, y2) {
+    return Math.hypot(x2 - x1, y2 - y1);
+}
+
 function hsv(h, s, v) {
     h = ((h % 360) + 360) % 360;
+
+    s = clamp(s, 0, 100) / 100;
+    v = clamp(v, 0, 100) / 100;
+
     const c = v * s;
     const x = c * (1 - Math.abs((h / 60) % 2 - 1));
     const m = v - c;
-    let rr = 0;
-    let gg = 0;
-    let bb = 0;
+
+    let r = 0;
+    let g = 0;
+    let b = 0;
+
     if (h < 60) {
-        rr = c;
-        gg = x;
+        r = c;
+        g = x;
     } else if (h < 120) {
-        rr = x;
-        gg = c;
+        r = x;
+        g = c;
     } else if (h < 180) {
-        gg = c;
-        bb = x;
+        g = c;
+        b = x;
     } else if (h < 240) {
-        gg = x;
-        bb = c;
+        g = x;
+        b = c;
     } else if (h < 300) {
-        rr = x;
-        bb = c;
+        r = x;
+        b = c;
     } else {
-        rr = c;
-        bb = x;
+        r = c;
+        b = x;
     }
+
     return {
-        r: Math.round((rr + m) * 255),
-        g: Math.round((gg + m) * 255),
-        b: Math.round((bb + m) * 255)
+        r: Math.round((r + m) * 255),
+        g: Math.round((g + m) * 255),
+        b: Math.round((b + m) * 255)
     };
 }
+
+function rgba(c, a) {
+    return `rgba(${c.r},${c.g},${c.b},${a})`;
+}
+
 function mix(a, b, t) {
     return {
         r: Math.round(lerp(a.r, b.r, t)),
@@ -77,884 +110,1392 @@ function mix(a, b, t) {
         b: Math.round(lerp(a.b, b.b, t))
     };
 }
-function scaleColor(c, n) {
-    return {
-        r: clamp(Math.round(c.r * n), 0, 255),
-        g: clamp(Math.round(c.g * n), 0, 255),
-        b: clamp(Math.round(c.b * n), 0, 255)
+
+/* ============================================================
+   RANDOM VISUAL INTENT
+
+   These are not artwork templates.
+
+   The generator creates a random combination of visual
+   properties and then attempts to express those properties.
+   ============================================================ */
+
+function createIntent(r) {
+    const intent = {
+        representation: rand(r, 0, 1),
+        abstraction: rand(r, 0, 1),
+        organicity: rand(r, 0, 1),
+        geometricity: rand(r, 0, 1),
+
+        scale: rand(r, 0, 1),
+        depth: rand(r, 0, 1),
+
+        calmness: rand(r, 0, 1),
+        tension: rand(r, 0, 1),
+
+        density: rand(r, 0, 1),
+        emptiness: rand(r, 0, 1),
+
+        symmetry: rand(r, 0, 1),
+        irregularity: rand(r, 0, 1),
+
+        softness: rand(r, 0, 1),
+        sharpness: rand(r, 0, 1),
+
+        luminosity: rand(r, 0, 1),
+        darkness: rand(r, 0, 1),
+
+        atmospheric: rand(r, 0, 1),
+        movement: rand(r, 0, 1),
+
+        complexity: rand(r, 0, 1)
     };
+
+    /*
+        These relationships don't choose an image.
+
+        They simply prevent the generated parameters from
+        becoming completely meaningless noise.
+    */
+
+    const balance = r();
+
+    if (balance < 0.5) {
+        intent.representation *= 0.7;
+        intent.abstraction = clamp(
+            intent.abstraction + 0.2,
+            0,
+            1
+        );
+    } else {
+        intent.representation = clamp(
+            intent.representation + 0.25,
+            0,
+            1
+        );
+    }
+
+    if (intent.representation > 0.65) {
+        intent.depth =
+            clamp(intent.depth + 0.2, 0, 1);
+
+        intent.atmospheric =
+            clamp(intent.atmospheric + 0.15, 0, 1);
+    }
+
+    if (intent.abstraction > 0.7) {
+        intent.geometricity =
+            clamp(intent.geometricity + rand(r, -0.2, 0.25), 0, 1);
+
+        intent.complexity =
+            clamp(intent.complexity + 0.2, 0, 1);
+    }
+
+    if (intent.organicity > 0.7) {
+        intent.irregularity =
+            clamp(intent.irregularity + 0.2, 0, 1);
+    }
+
+    return intent;
 }
-function rgba(c, a) {
-    return `rgba(${c.r},${c.g},${c.b},${a})`;
-}
-function makePalette(r) {
-    const base = range(r, 0, 360);
-    const systems = [
-        {
-            name: "DREAM ANALOGUE",
-            hues: [base - 45, base - 18, base, base + 20, base + 43]
-        },
-        {
-            name: "DREAM COMPLEMENT",
-            hues: [base, base + 18, base - 18, base + 180, base + 198]
-        },
-        {
-            name: "TRIADIC DREAM",
-            hues: [base, base + 120, base + 240, base + 18, base + 198]
-        },
-        {
-            name: "NIGHT TETRAD",
-            hues: [base, base + 75, base + 180, base + 255, base + 35]
-        },
-        {
-            name: "PASTEL VOID",
-            hues: [base, base + 30, base + 70, base + 180, base + 210]
-        },
-        {
-            name: "ACID DREAM",
-            hues: [base, base + 55, base + 125, base + 185, base + 275]
-        },
-        {
-            name: "UNSTABLE HARMONY",
-            hues: [
-                base,
-                base + range(r, 20, 90),
-                base + range(r, 100, 180),
-                base + range(r, 190, 280),
-                base + range(r, 280, 350)
-            ]
+
+/* ============================================================
+   RANDOM COMPOSITION
+
+   No fixed thirds.
+   No fixed focal point.
+   No predefined layout.
+
+   Three major visual masses are generated because the rule of
+   thirds is used as a compositional tendency, not a template.
+   ============================================================ */
+
+function createComposition(r, intent) {
+    const count = int(r, 3, 7);
+
+    const masses = [];
+
+    for (let i = 0; i < count; i++) {
+        masses.push({
+            x: rand(r, -0.15, 1.15),
+            y: rand(r, -0.15, 1.15),
+
+            scale: rand(
+                r,
+                0.04,
+                0.38
+            ),
+
+            weight: rand(
+                r,
+                0.03,
+                1
+            ),
+
+            rotation: rand(
+                r,
+                -Math.PI,
+                Math.PI
+            ),
+
+            depth: rand(r, 0, 1),
+
+            irregularity:
+                rand(r, 0, 1),
+
+            density:
+                rand(r, 0.1, 1)
+        });
+    }
+
+    /*
+        Randomly establish three dominant relationships.
+
+        Their positions remain completely random.
+    */
+
+    const dominantIndices = [];
+
+    while (dominantIndices.length < 3) {
+        const i = int(r, 0, masses.length - 1);
+
+        if (!dominantIndices.includes(i)) {
+            dominantIndices.push(i);
         }
-    ];
-    const system = systems[integer(r, 0, systems.length - 1)];
-    const colors = system.hues.map((h, i) => {
-        let saturation;
-        let value;
-        if (system.name === "PASTEL VOID") {
-            saturation = range(r, 0.2, 0.55);
-            value = range(r, 0.65, 1);
-        } else if (system.name === "ACID DREAM") {
-            saturation = range(r, 0.65, 1);
-            value = range(r, 0.45, 1);
-        } else {
-            saturation = i === 0
-                ? range(r, 0.3, 0.65)
-                : range(r, 0.35, 0.95);
-            value = i === 0
-                ? range(r, 0.07, 0.2)
-                : range(r, 0.35, 1);
-        }
-        return hsv(h, saturation, value);
-    });
+    }
+
+    for (let i = 0; i < dominantIndices.length; i++) {
+        masses[dominantIndices[i]].weight =
+            [0.55, 0.3, 0.15][i];
+    }
+
     return {
-        name: system.name,
-        colors,
-        background: scaleColor(colors[0], range(r, 0.25, 0.55))
+        masses,
+
+        horizon:
+            r() < 0.55
+                ? rand(r, 0.2, 0.8)
+                : null,
+
+        perspective:
+            rand(r, -1, 1),
+
+        globalRotation:
+            rand(r, -Math.PI, Math.PI),
+
+        asymmetry:
+            rand(r, 0, 1),
+
+        emptyBias:
+            clamp(
+                intent.emptiness +
+                rand(r, -0.25, 0.25),
+                0,
+                1
+            ),
+
+        scale:
+            rand(r, 0.7, 1.5)
     };
 }
-function makeComposition(r) {
-    const names = [
-        "DREAM LOGIC",
-        "ASYMMETRICAL DREAM",
-        "IMPOSSIBLE PERSPECTIVE",
-        "VISUAL TENSION",
-        "NEGATIVE SPACE",
-        "HYPNOTIC BALANCE",
-        "CONTROLLED CHAOS",
-        "UNCANNY SYMMETRY",
-        "LIMINAL COMPOSITION"
-    ];
+
+/* ============================================================
+   COLOUR THEORY
+
+   The harmony is generated mathematically.
+
+   The exact colours are not predefined.
+   ============================================================ */
+
+function createPalette(r, intent) {
+    const base = rand(r, 0, 360);
+
+    const harmony = int(r, 0, 4);
+
+    let offsets;
+
+    if (harmony === 0) {
+        const spread = rand(r, 15, 55);
+
+        offsets = [
+            -spread,
+            0,
+            spread
+        ];
+    } else if (harmony === 1) {
+        offsets = [
+            0,
+            180 + rand(r, -18, 18),
+            rand(r, -30, 30)
+        ];
+    } else if (harmony === 2) {
+        offsets = [
+            0,
+            120 + rand(r, -18, 18),
+            240 + rand(r, -18, 18)
+        ];
+    } else if (harmony === 3) {
+        offsets = [
+            0,
+            150 + rand(r, -15, 15),
+            210 + rand(r, -15, 15)
+        ];
+    } else {
+        offsets = [
+            0,
+            90 + rand(r, -12, 12),
+            180 + rand(r, -12, 12)
+        ];
+    }
+
+    const colours = offsets.map(offset => ({
+        h: base + offset,
+        s: rand(
+            r,
+            25 + intent.luminosity * 20,
+            85 + intent.sharpness * 15
+        ),
+        v: rand(
+            r,
+            20,
+            75 + intent.luminosity * 25
+        )
+    }));
+
+    const dark = hsv(
+        base + rand(r, -30, 30),
+        rand(r, 25, 75),
+        rand(
+            r,
+            4,
+            22 + intent.darkness * 15
+        )
+    );
+
+    const light = hsv(
+        base + rand(r, -30, 30),
+        rand(r, 5, 35),
+        rand(
+            r,
+            78,
+            100
+        )
+    );
+
     return {
-        name: names[integer(r, 0, names.length - 1)],
-        focalX: range(r, 120, WIDTH - 120),
-        focalY: range(r, 100, HEIGHT - 100),
-        chaos: range(r, 0.35, 1),
-        emptiness: range(r, 0.08, 0.48),
-        symmetry: range(r, 0, 0.8),
-        density: range(r, 0.75, 1),
-        curvature: range(r, 0.2, 1),
-        scale: range(r, 0.65, 1.7)
+        harmony,
+        base,
+        colours,
+        dark,
+        light
     };
 }
-function add(circles, x, y, radius, color, alpha, layer) {
+
+/* ============================================================
+   MATHEMATICAL WORLD
+
+   This is where the artwork actually comes from.
+   ============================================================ */
+
+function createWorld(r, intent) {
+    return {
+        frequencyA: rand(r, 0.001, 0.025),
+        frequencyB: rand(r, 0.001, 0.02),
+        frequencyC: rand(r, 0.0005, 0.015),
+
+        amplitudeA: rand(r, 20, 400),
+        amplitudeB: rand(r, 20, 350),
+        amplitudeC: rand(r, 10, 250),
+
+        phaseA: rand(r, 0, Math.PI * 2),
+        phaseB: rand(r, 0, Math.PI * 2),
+        phaseC: rand(r, 0, Math.PI * 2),
+
+        warpA: rand(r, 0.1, 5),
+        warpB: rand(r, 0.1, 5),
+        warpC: rand(r, 0.1, 5),
+
+        radialInfluence: rand(r, -2, 2),
+        rotationalInfluence: rand(r, -4, 4),
+
+        attraction: rand(r, -2, 2),
+        repulsion: rand(r, -2, 2),
+
+        turbulence: rand(r, 0, 5),
+
+        noiseScale: rand(r, 0.001, 0.03),
+
+        curvature: rand(r, -3, 3),
+
+        perspectiveStrength:
+            rand(r, -2, 2),
+
+        grain:
+            rand(r, 0.1, 3),
+
+        organic:
+            intent.organicity,
+
+        geometric:
+            intent.geometricity,
+
+        depth:
+            intent.depth,
+
+        motion:
+            intent.movement
+    };
+}
+
+function field(x, y, world) {
+    const cx = WIDTH * 0.5;
+    const cy = HEIGHT * 0.5;
+
+    const dx = x - cx;
+    const dy = y - cy;
+
+    const radius =
+        Math.hypot(dx, dy);
+
+    const angle =
+        Math.atan2(dy, dx);
+
+    const a =
+        Math.sin(
+            x * world.frequencyA +
+            Math.sin(
+                y * world.frequencyB *
+                world.warpA
+            ) +
+            world.phaseA
+        );
+
+    const b =
+        Math.cos(
+            y * world.frequencyB +
+            Math.sin(
+                x * world.frequencyC *
+                world.warpB
+            ) +
+            world.phaseB
+        );
+
+    const c =
+        Math.sin(
+            (x + y) *
+            world.frequencyC *
+            world.warpC +
+            world.phaseC
+        );
+
+    const radial =
+        Math.sin(
+            radius *
+            world.noiseScale *
+            20
+        );
+
+    const rotation =
+        Math.sin(
+            angle *
+            world.rotationalInfluence +
+            radius *
+            world.frequencyA
+        );
+
+    const curvature =
+        Math.sin(
+            Math.pow(
+                Math.abs(dx) +
+                Math.abs(dy),
+                0.8
+            ) *
+            world.frequencyC
+        );
+
+    return (
+        a * 0.25 +
+        b * 0.25 +
+        c * 0.18 +
+        radial * world.radialInfluence * 0.15 +
+        rotation * 0.1 +
+        curvature * world.curvature * 0.07
+    );
+}
+
+function warpPoint(x, y, world, amount) {
+    const f1 = field(x, y, world);
+
+    const f2 = field(
+        x + 97,
+        y - 53,
+        world
+    );
+
+    const angle =
+        f1 * Math.PI * 2 +
+        f2 * world.rotationalInfluence;
+
+    const strength =
+        amount *
+        (
+            0.3 +
+            Math.abs(f1)
+        );
+
+    return {
+        x:
+            x +
+            Math.cos(angle) *
+            strength,
+
+        y:
+            y +
+            Math.sin(angle) *
+            strength
+    };
+}
+
+/* ============================================================
+   POSITIONAL COLOUR
+   ============================================================ */
+
+function colourAt(x, y, world, palette) {
+    const f =
+        clamp(
+            (field(x, y, world) + 1) * 0.5,
+            0,
+            1
+        );
+
+    const a = palette.colours[0];
+    const b = palette.colours[1];
+    const c = palette.colours[2];
+
+    let hue;
+
+    if (f < 0.5) {
+        hue =
+            lerp(
+                a.h,
+                b.h,
+                f * 2
+            );
+    } else {
+        hue =
+            lerp(
+                b.h,
+                c.h,
+                (f - 0.5) * 2
+            );
+    }
+
+    const variation =
+        field(
+            x + 200,
+            y + 400,
+            world
+        );
+
+    hue += variation * 25;
+
+    const saturation =
+        clamp(
+            lerp(
+                a.s,
+                c.s,
+                f
+            ) +
+            variation * 12,
+            5,
+            100
+        );
+
+    const value =
+        clamp(
+            lerp(
+                a.v,
+                c.v,
+                f
+            ) +
+            variation * 15,
+            5,
+            100
+        );
+
+    return hsv(
+        hue,
+        saturation,
+        value
+    );
+}
+
+/* ============================================================
+   PARTICLES
+   ============================================================ */
+
+function addCircle(
+    x,
+    y,
+    radius,
+    colour,
+    alpha,
+    layer
+) {
     if (
         x < -radius ||
         x > WIDTH + radius ||
         y < -radius ||
         y > HEIGHT + radius
-    ) return;
+    ) {
+        return;
+    }
+
     circles.push({
         x,
         y,
         radius,
-        color,
+        colour,
         alpha,
         layer
     });
 }
-function draw(circles) {
-    circles.sort((a, b) => a.layer - b.layer);
-    for (const c of circles) {
-        ctx.beginPath();
-        ctx.arc(c.x, c.y, c.radius, 0, TAU);
-        ctx.fillStyle = rgba(c.color, c.alpha);
-        ctx.fill();
-    }
-}
-function background(r, palette, circles) {
-    const spacing = 3.5;
-    for (let y = 0; y < HEIGHT; y += spacing) {
-        const t = y / HEIGHT;
-        const base = mix(
-            palette.background,
-            palette.colors[1],
-            t * 0.3
+
+/* ============================================================
+   PROCEDURAL SCENE PAINTING
+   ============================================================ */
+
+function paintScene(
+    r,
+    world,
+    composition,
+    palette,
+    intent
+) {
+    /*
+        Large particles establish the broad structure.
+    */
+
+    const largeCount =
+        Math.floor(
+            9000 +
+            intent.density * 8000
         );
-        for (let x = 0; x < WIDTH; x += spacing) {
-            const variation = range(r, 0.86, 1.12);
-            add(
-                circles,
-                x + range(r, -2, 2),
-                y + range(r, -2, 2),
-                range(r, 1.7, 4),
-                scaleColor(base, variation),
-                range(r, 0.2, 0.42),
-                0
+
+    for (let i = 0; i < largeCount; i++) {
+        const mass =
+            composition.masses[
+                int(
+                    r,
+                    0,
+                    composition.masses.length - 1
+                )
+            ];
+
+        let x =
+            mass.x * WIDTH +
+            rand(
+                r,
+                -mass.scale * WIDTH,
+                mass.scale * WIDTH
             );
+
+        let y =
+            mass.y * HEIGHT +
+            rand(
+                r,
+                -mass.scale * HEIGHT,
+                mass.scale * HEIGHT
+            );
+
+        const warped =
+            warpPoint(
+                x,
+                y,
+                world,
+                rand(
+                    r,
+                    20,
+                    250
+                )
+            );
+
+        x = warped.x;
+        y = warped.y;
+
+        const f =
+            field(
+                x,
+                y,
+                world
+            );
+
+        const probability =
+            clamp(
+                0.25 +
+                mass.weight * 0.7 +
+                f * 0.2,
+                0,
+                1
+            );
+
+        if (r() > probability) {
+            continue;
         }
-    }
-}
-function denseField(r, palette, circles, cx, cy, width, height, colorIndex, density, layer) {
-    const count = Math.floor(width * height / 22 * density);
-    const color = palette.colors[colorIndex];
-    for (let i = 0; i < count; i++) {
-        const x = cx + range(r, -width / 2, width / 2);
-        const y = cy + range(r, -height / 2, height / 2);
-        const edgeX = Math.abs(x - cx) / (width / 2);
-        const edgeY = Math.abs(y - cy) / (height / 2);
-        const edgeFade = clamp(
-            1 - Math.max(edgeX, edgeY) * 0.45,
-            0.1,
+
+        const colour =
+            colourAt(
+                x,
+                y,
+                world,
+                palette
+            );
+
+        const radius =
+            Math.pow(
+                r(),
+                intent.softness + 0.7
+            ) *
+            (
+                1 +
+                intent.scale * 8
+            );
+
+        addCircle(
+            x,
+            y,
+            radius,
+            colour,
+            rand(
+                r,
+                0.035,
+                0.2
+            ),
             1
         );
-        add(
-            circles,
-            x,
-            y,
-            range(r, 0.8, 3.8),
-            scaleColor(color, range(r, 0.75, 1.25)),
-            range(r, 0.12, 0.42) * edgeFade,
-            layer
+    }
+
+    /*
+        Medium particles provide structure and transitions.
+    */
+
+    const mediumCount =
+        28000 +
+        Math.floor(
+            intent.complexity *
+            18000
         );
-    }
-}
-function cloud(r, x, y, size, color, circles, layer) {
-    const blobs = integer(r, 4, 14);
-    for (let i = 0; i < blobs; i++) {
-        const angle = range(r, 0, TAU);
-        const d = range(r, 0, size * 0.65);
-        const bx = x + Math.cos(angle) * d;
-        const by = y + Math.sin(angle) * d;
-        const radius = range(r, size * 0.15, size * 0.5);
-        const count = Math.floor(radius * radius / 3.5);
-        for (let j = 0; j < count; j++) {
-            const a = range(r, 0, TAU);
-            const d2 = Math.sqrt(r()) * radius;
-            add(
-                circles,
-                bx + Math.cos(a) * d2,
-                by + Math.sin(a) * d2,
-                range(r, 0.7, 4),
-                scaleColor(color, range(r, 0.75, 1.2)),
-                range(r, 0.1, 0.45),
-                layer
-            );
-        }
-    }
-}
-function tendril(r, startX, startY, angle, length, color, circles, layer) {
-    const steps = Math.floor(length / 3.5);
-    let x = startX;
-    let y = startY;
-    let direction = angle;
-    for (let i = 0; i < steps; i++) {
-        const t = i / steps;
-        direction += Math.sin(t * TAU * range(r, 1.5, 5)) * 0.035;
-        x += Math.cos(direction) * range(r, 2.5, 5.5);
-        y += Math.sin(direction) * range(r, 2.5, 5.5);
-        const width = lerp(8, 1.2, t);
-        for (let j = 0; j < integer(r, 2, 6); j++) {
-            add(
-                circles,
-                x + range(r, -width, width),
-                y + range(r, -width, width),
-                range(r, 0.8, 3.8),
-                scaleColor(color, range(r, 0.7, 1.3)),
-                range(r, 0.12, 0.45),
-                layer
-            );
-        }
-    }
-}
-function spiral(r, x, y, radius, color, circles, layer) {
-    const turns = range(r, 1.5, 6);
-    const count = Math.floor(radius * 7);
-    for (let i = 0; i < count; i++) {
-        const t = i / count;
-        const angle = t * TAU * turns;
-        const d = t * radius;
-        const wobble =
-            Math.sin(t * TAU * integer(r, 2, 7)) *
-            radius *
-            0.04;
-        add(
-            circles,
-            x + Math.cos(angle) * (d + wobble),
-            y + Math.sin(angle) * (d + wobble),
-            range(r, 0.8, 4.5) * (1 - t * 0.45),
-            color,
-            range(r, 0.12, 0.55),
-            layer
-        );
-    }
-}
-function portal(r, x, y, radius, palette, circles, layer) {
-    const rings = integer(r, 4, 12);
-    for (let ring = 0; ring < rings; ring++) {
-        const rr = radius * (ring + 1) / rings;
-        const count = Math.floor(rr * 5);
-        for (let i = 0; i < count; i++) {
-            const angle =
-                i / count * TAU +
-                ring * range(r, -0.08, 0.08);
-            add(
-                circles,
-                x + Math.cos(angle) * rr,
-                y + Math.sin(angle) * rr,
-                range(r, 1, 4),
-                palette.colors[(ring + 2) % 5],
-                range(r, 0.12, 0.5),
-                layer + ring * 0.1
-            );
-        }
-    }
-    const inside = Math.floor(radius * radius / 2.5);
-    for (let i = 0; i < inside; i++) {
-        const angle = range(r, 0, TAU);
-        const d = Math.sqrt(r()) * radius * 0.7;
-        add(
-            circles,
-            x + Math.cos(angle) * d,
-            y + Math.sin(angle) * d,
-            range(r, 0.7, 3),
-            palette.colors[0],
-            range(r, 0.15, 0.4),
-            layer - 1
-        );
-    }
-}
-function impossibleStructure(r, x, y, size, palette, circles) {
-    const colorA = palette.colors[integer(r, 1, 3)];
-    const colorB = palette.colors[integer(r, 2, 4)];
-    const mode = integer(r, 0, 5);
-    if (mode === 0) {
-        for (let i = 0; i < 8; i++) {
-            const angle = i / 8 * TAU + range(r, -0.1, 0.1);
-            tendril(
-                r,
+
+    for (let i = 0; i < mediumCount; i++) {
+        let x =
+            rand(r, 0, WIDTH);
+
+        let y =
+            rand(r, 0, HEIGHT);
+
+        const f =
+            field(
                 x,
                 y,
-                angle,
-                size * range(r, 0.6, 1.5),
-                i % 2 ? colorA : colorB,
-                circles,
-                7
+                world
             );
-        }
-    } else if (mode === 1) {
-        const levels = integer(r, 4, 12);
-        for (let i = 0; i < levels; i++) {
-            const t = i / levels;
-            const px =
-                x +
-                Math.sin(t * TAU * 1.7) *
-                size *
-                0.55;
-            const py =
-                y -
-                t *
-                size *
-                1.5;
-            cloud(
-                r,
-                px,
-                py,
-                size * (0.2 + t * 0.08),
-                i % 2 ? colorA : colorB,
-                circles,
-                7 + i * 0.1
-            );
-        }
-    } else if (mode === 2) {
-        spiral(
-            r,
-            x,
-            y,
-            size * 1.3,
-            colorA,
-            circles,
-            7
-        );
-        spiral(
-            r,
-            x,
-            y,
-            size * 0.65,
-            colorB,
-            circles,
-            8
-        );
-    } else if (mode === 3) {
-        const arms = integer(r, 5, 11);
-        for (let i = 0; i < arms; i++) {
-            const angle = i / arms * TAU;
-            const ex = x + Math.cos(angle) * size;
-            const ey = y + Math.sin(angle) * size;
-            tendril(
-                r,
+
+        const warped =
+            warpPoint(
                 x,
                 y,
-                angle,
-                size,
-                colorA,
-                circles,
-                7
+                world,
+                rand(r, 5, 100)
             );
-            portal(
-                r,
-                ex,
-                ey,
-                size * range(r, 0.08, 0.2),
-                palette,
-                circles,
-                9
-            );
+
+        x = warped.x;
+        y = warped.y;
+
+        let localDensity =
+            0.5 +
+            f * 0.35;
+
+        for (const mass of composition.masses) {
+            const d =
+                distance(
+                    x,
+                    y,
+                    mass.x * WIDTH,
+                    mass.y * HEIGHT
+                );
+
+            const influence =
+                Math.exp(
+                    -(
+                        d * d
+                    ) /
+                    (
+                        2 *
+                        Math.pow(
+                            mass.scale *
+                            WIDTH,
+                            2
+                        )
+                    )
+                );
+
+            localDensity +=
+                influence *
+                mass.weight;
         }
-    } else if (mode === 4) {
-        const width = size * 1.6;
-        const height = size * 0.7;
-        denseField(
-            r,
-            palette,
-            circles,
-            x,
-            y,
-            width,
-            height,
-            integer(r, 1, 4),
-            1.7,
-            7
-        );
-        spiral(
-            r,
-            x,
-            y,
-            size * 0.75,
-            colorB,
-            circles,
-            9
-        );
-    } else {
-        portal(
-            r,
-            x,
-            y,
-            size * range(r, 0.5, 1),
-            palette,
-            circles,
-            8
-        );
-        const count = integer(r, 5, 15);
-        for (let i = 0; i < count; i++) {
-            const angle = range(r, 0, TAU);
-            const d = range(r, size, size * 2.2);
-            tendril(
-                r,
-                x + Math.cos(angle) * d,
-                y + Math.sin(angle) * d,
-                angle + Math.PI,
-                range(r, size * 0.2, size * 0.8),
-                colorA,
-                circles,
-                6
-            );
-        }
-    }
-}
-function dreamObject(r, x, y, size, palette, circles) {
-    const type = integer(r, 0, 8);
-    if (type === 0) {
-        portal(r, x, y, size, palette, circles, 9);
-    }
-    if (type === 1) {
-        impossibleStructure(r, x, y, size, palette, circles);
-    }
-    if (type === 2) {
-        cloud(
-            r,
-            x,
-            y,
-            size,
-            palette.colors[integer(r, 1, 4)],
-            circles,
-            8
-        );
-    }
-    if (type === 3) {
-        spiral(
-            r,
-            x,
-            y,
-            size * 1.5,
-            palette.colors[integer(r, 1, 4)],
-            circles,
-            8
-        );
-    }
-    if (type === 4) {
-        for (let i = 0; i < integer(r, 3, 9); i++) {
-            const angle = range(r, 0, TAU);
-            tendril(
-                r,
-                x,
-                y,
-                angle,
-                size * range(r, 0.5, 1.5),
-                palette.colors[integer(r, 1, 4)],
-                circles,
-                7
-            );
-        }
-    }
-    if (type === 5) {
-        denseField(
-            r,
-            palette,
-            circles,
-            x,
-            y,
-            size * 2,
-            size * 2,
-            integer(r, 1, 4),
-            2.5,
-            8
-        );
-    }
-    if (type === 6) {
-        const copies = integer(r, 3, 7);
-        for (let i = 0; i < copies; i++) {
-            const angle = i / copies * TAU;
-            portal(
-                r,
-                x + Math.cos(angle) * size * 0.8,
-                y + Math.sin(angle) * size * 0.8,
-                size * range(r, 0.12, 0.3),
-                palette,
-                circles,
-                9
-            );
-        }
-    }
-    if (type === 7) {
-        for (let i = 0; i < integer(r, 8, 20); i++) {
-            const angle = range(r, 0, TAU);
-            const d = range(r, size * 0.3, size);
-            add(
-                circles,
-                x + Math.cos(angle) * d,
-                y + Math.sin(angle) * d,
-                range(r, 3, 13),
-                palette.colors[integer(r, 1, 4)],
-                range(r, 0.2, 0.65),
-                9
-            );
-        }
-    }
-    if (type === 8) {
-        impossibleStructure(
-            r,
-            x,
-            y,
-            size * range(r, 0.6, 1.4),
-            palette,
-            circles
-        );
-    }
-}
-function focalDream(r, composition, palette, circles) {
-    const x = composition.focalX;
-    const y = composition.focalY;
-    const size = range(
-        r,
-        130,
-        300
-    ) * composition.scale;
-    dreamObject(
-        r,
-        x,
-        y,
-        size,
-        palette,
-        circles
-    );
-    if (chance(r, 0.75)) {
-        portal(
-            r,
-            x + range(r, -size * 0.4, size * 0.4),
-            y + range(r, -size * 0.4, size * 0.4),
-            size * range(r, 0.12, 0.3),
-            palette,
-            circles,
-            11
-        );
-    }
-}
-function surroundingDreams(r, composition, palette, circles) {
-    const count = integer(
-        r,
-        7,
-        20
-    );
-    for (let i = 0; i < count; i++) {
-        const angle = range(r, 0, TAU);
-        const distance = range(
-            r,
-            160,
-            650
-        ) * (0.65 + composition.chaos * 0.6);
-        const x =
-            composition.focalX +
-            Math.cos(angle) * distance;
-        const y =
-            composition.focalY +
-            Math.sin(angle) * distance;
+
         if (
-            x < -100 ||
-            x > WIDTH + 100 ||
-            y < -100 ||
-            y > HEIGHT + 100
-        ) continue;
-        const size = range(r, 15, 130);
-        dreamObject(
-            r,
+            r() >
+            clamp(
+                localDensity,
+                0.02,
+                1
+            )
+        ) {
+            continue;
+        }
+
+        const colour =
+            colourAt(
+                x,
+                y,
+                world,
+                palette
+            );
+
+        const radius =
+            rand(
+                r,
+                0.4,
+                3.5
+            );
+
+        addCircle(
             x,
             y,
-            size,
-            palette,
-            circles
+            radius,
+            colour,
+            rand(
+                r,
+                0.025,
+                0.17
+            ),
+            2
         );
     }
-}
-function paintHugeColourMass(r, composition, palette, circles) {
-    const count = integer(r, 2, 6);
-    for (let i = 0; i < count; i++) {
-        const x = range(r, -100, WIDTH + 100);
-        const y = range(r, -100, HEIGHT + 100);
-        const width = range(r, 180, 700);
-        const height = range(r, 100, 600);
-        denseField(
-            r,
-            palette,
-            circles,
+
+    /*
+        Fine pigment.
+
+        This is what makes dense areas stop looking like
+        individual dots.
+    */
+
+    const fineCount =
+        60000 +
+        Math.floor(
+            intent.density *
+            40000
+        );
+
+    for (let i = 0; i < fineCount; i++) {
+        const x =
+            rand(r, 0, WIDTH);
+
+        const y =
+            rand(r, 0, HEIGHT);
+
+        const f =
+            field(
+                x,
+                y,
+                world
+            );
+
+        if (
+            r() >
+            clamp(
+                0.42 +
+                f * 0.28,
+                0.05,
+                0.9
+            )
+        ) {
+            continue;
+        }
+
+        const colour =
+            colourAt(
+                x,
+                y,
+                world,
+                palette
+            );
+
+        addCircle(
             x,
             y,
-            width,
-            height,
-            integer(r, 0, 4),
-            range(r, 1.2, 2.8),
+            rand(
+                r,
+                0.15,
+                1.35
+            ),
+            colour,
+            rand(
+                r,
+                0.015,
+                0.09
+            ),
             3
         );
     }
 }
-function atmosphere(r, palette, circles) {
-    const count = 22000;
-    for (let i = 0; i < count; i++) {
-        const x = range(r, 0, WIDTH);
-        const y = range(r, 0, HEIGHT);
-        const color =
-            palette.colors[integer(r, 0, 4)];
-        add(
-            circles,
-            x,
-            y,
-            range(r, 0.5, 2.5),
-            color,
-            range(r, 0.015, 0.08),
-            12
+
+/* ============================================================
+   ATMOSPHERE / DEPTH
+   ============================================================ */
+
+function paintAtmosphere(
+    r,
+    world,
+    palette,
+    intent,
+    composition
+) {
+    const amount =
+        10000 +
+        Math.floor(
+            intent.atmospheric *
+            16000
         );
-    }
-}
-function stars(r, palette, circles) {
-    const count = integer(r, 3000, 9000);
-    for (let i = 0; i < count; i++) {
-        const x = range(r, 0, WIDTH);
-        const y = range(r, 0, HEIGHT);
-        const color =
-            chance(r, 0.65)
-                ? palette.colors[4]
-                : palette.colors[integer(r, 0, 4)];
-        add(
-            circles,
-            x,
-            y,
-            range(r, 0.35, 2.5),
-            color,
-            range(r, 0.08, 0.5),
-            13
-        );
-    }
-}
-function highlightCore(r, composition, palette, circles) {
-    const count = integer(r, 7000, 16000);
-    for (let i = 0; i < count; i++) {
-        const angle = range(r, 0, TAU);
-        const d = Math.pow(r(), 1.6) * 300;
-        const x =
-            composition.focalX +
-            Math.cos(angle) * d;
-        const y =
-            composition.focalY +
-            Math.sin(angle) * d;
-        if (
-            x < 0 ||
-            x > WIDTH ||
-            y < 0 ||
-            y > HEIGHT
-        ) continue;
-        add(
-            circles,
-            x,
-            y,
-            range(r, 0.4, 2.4),
-            palette.colors[4],
-            range(r, 0.06, 0.35),
-            14
-        );
-    }
-}
-function symmetryEcho(r, composition, circles) {
-    if (composition.symmetry < 0.15) return;
-    const original = circles.slice();
-    for (const c of original) {
-        if (c.layer < 7) continue;
-        if (chance(r, composition.symmetry * 0.08)) {
-            const mx = WIDTH - c.x;
-            add(
-                circles,
-                mx + range(r, -25, 25),
-                c.y + range(r, -25, 25),
-                c.radius * range(r, 0.7, 1.1),
-                c.color,
-                c.alpha * composition.symmetry,
-                c.layer
+
+    for (let i = 0; i < amount; i++) {
+        let x =
+            rand(r, -100, WIDTH + 100);
+
+        let y =
+            rand(r, -100, HEIGHT + 100);
+
+        const depth =
+            r();
+
+        const scale =
+            lerp(
+                0.2,
+                2.5,
+                depth
             );
-        }
-    }
-}
-function negativeSpace(r, composition, circles) {
-    if (composition.emptiness < 0.18) return;
-    const side = integer(r, 0, 3);
-    let test;
-    if (side === 0) {
-        test = c => c.x < WIDTH * 0.25;
-    } else if (side === 1) {
-        test = c => c.x > WIDTH * 0.75;
-    } else if (side === 2) {
-        test = c => c.y < HEIGHT * 0.25;
-    } else {
-        test = c => c.y > HEIGHT * 0.75;
-    }
-    for (const c of circles) {
-        if (c.layer < 4) continue;
-        if (test(c)) {
-            c.alpha *= range(
+
+        const colour =
+            depth < 0.5
+                ? mix(
+                    palette.dark,
+                    palette.light,
+                    depth * 0.5
+                )
+                : palette.light;
+
+        addCircle(
+            x,
+            y,
+            rand(
                 r,
-                0.08,
-                0.4
-            );
-        }
+                0.1,
+                scale
+            ),
+            colour,
+            rand(
+                r,
+                0.005,
+                0.035
+            ) *
+            intent.atmospheric,
+            4
+        );
     }
 }
-function title(r) {
-    const words = [
-        "SOMETHING",
-        "NOTHING",
-        "ELSEWHERE",
-        "HOME",
-        "DREAM",
-        "MEMORY",
-        "SLEEP",
-        "THE OTHER SIDE",
-        "YESTERDAY",
-        "TOMORROW",
-        "SILENCE",
-        "STATIC",
-        "ROOM",
-        "PLACE",
-        "VOID",
-        "LIGHT",
-        "OCEAN",
-        "SKY",
-        "THOUGHT",
-        "SIGNAL",
-        "GARDEN",
-        "DOOR",
-        "HALLWAY",
-        "WORLD",
-        "ECHO"
-    ];
-    const structures = [
-        () => `THE ${words[integer(r, 0, words.length - 1)]}`,
-        () => `${words[integer(r, 0, words.length - 1)]} WITHOUT END`,
-        () => `WHERE ${words[integer(r, 0, words.length - 1)]} GOES`,
-        () => `A ${words[integer(r, 0, words.length - 1)]} IN ${words[integer(r, 0, words.length - 1)]}`,
-        () => `${words[integer(r, 0, words.length - 1)]} AFTER ${words[integer(r, 0, words.length - 1)]}`,
-        () => `I REMEMBER ${words[integer(r, 0, words.length - 1)]}`,
-        () => `THE ${words[integer(r, 0, words.length - 1)]} THAT WASN'T THERE`,
-        () => `SOMEWHERE ${words[integer(r, 0, words.length - 1)]}`,
-        () => `${words[integer(r, 0, words.length - 1)]} / ${words[integer(r, 0, words.length - 1)]}`,
-        () => `DREAM ${integer(r, 2, 99)}`
-    ];
-    return structures[
-        integer(r, 0, structures.length - 1)
-    ]();
+
+/* ============================================================
+   LIGHT / ACCENTS
+   ============================================================ */
+
+function paintLight(
+    r,
+    world,
+    palette,
+    composition,
+    intent
+) {
+    const amount =
+        5000 +
+        Math.floor(
+            intent.luminosity *
+            8000
+        );
+
+    for (let i = 0; i < amount; i++) {
+        const mass =
+            composition.masses[
+                int(
+                    r,
+                    0,
+                    composition.masses.length - 1
+                )
+            ];
+
+        const spread =
+            mass.scale *
+            WIDTH;
+
+        const angle =
+            rand(
+                r,
+                0,
+                Math.PI * 2
+            );
+
+        const radius =
+            Math.pow(
+                r(),
+                1.8
+            ) *
+            spread;
+
+        let x =
+            mass.x * WIDTH +
+            Math.cos(angle) * radius;
+
+        let y =
+            mass.y * HEIGHT +
+            Math.sin(angle) * radius;
+
+        const warped =
+            warpPoint(
+                x,
+                y,
+                world,
+                radius * 0.25
+            );
+
+        x = warped.x;
+        y = warped.y;
+
+        const colour =
+            palette.light;
+
+        addCircle(
+            x,
+            y,
+            rand(
+                r,
+                0.15,
+                2
+            ),
+            colour,
+            rand(
+                r,
+                0.01,
+                0.12
+            ) *
+            intent.luminosity,
+            5
+        );
+    }
 }
-function render(seed) {
-    const r = rng(seed);
-    canvas.width = WIDTH;
-    canvas.height = HEIGHT;
-    const palette = makePalette(r);
-    const composition = makeComposition(r);
-    const circles = [];
-    ctx.fillStyle = rgba(
-        palette.background,
-        1
+
+/* ============================================================
+   SELF-EVALUATION
+
+   We don't identify objects here.
+
+   We evaluate whether the mathematical composition has
+   useful visual properties.
+   ============================================================ */
+
+function evaluateArtwork() {
+    if (circles.length === 0) {
+        return 0;
+    }
+
+    let densitySum = 0;
+    let alphaSum = 0;
+
+    const binsX = 12;
+    const binsY = 9;
+
+    const bins = new Array(
+        binsX * binsY
+    ).fill(0);
+
+    for (const c of circles) {
+        const bx =
+            clamp(
+                Math.floor(
+                    c.x / WIDTH * binsX
+                ),
+                0,
+                binsX - 1
+            );
+
+        const by =
+            clamp(
+                Math.floor(
+                    c.y / HEIGHT * binsY
+                ),
+                0,
+                binsY - 1
+            );
+
+        bins[
+            by * binsX + bx
+        ] += c.alpha;
+
+        densitySum +=
+            c.radius;
+
+        alphaSum +=
+            c.alpha;
+    }
+
+    let variation = 0;
+
+    const mean =
+        bins.reduce(
+            (a, b) => a + b,
+            0
+        ) / bins.length;
+
+    for (const value of bins) {
+        variation +=
+            Math.abs(
+                value - mean
+            );
+    }
+
+    variation /=
+        bins.length;
+
+    const densityScore =
+        clamp(
+            densitySum /
+            circles.length /
+            3,
+            0,
+            1
+        );
+
+    const variationScore =
+        clamp(
+            variation /
+            Math.max(mean, 0.001),
+            0,
+            1
+        );
+
+    const opacityScore =
+        clamp(
+            alphaSum /
+            circles.length /
+            0.15,
+            0,
+            1
+        );
+
+    /*
+        The generator favours images with:
+        - variation
+        - density
+        - visible hierarchy
+        - neither complete emptiness nor uniform noise
+    */
+
+    return (
+        variationScore * 0.4 +
+        densityScore * 0.3 +
+        opacityScore * 0.3
     );
+}
+
+/* ============================================================
+   TITLE
+
+   Titles are generated after the image exists and don't
+   influence its visual structure.
+   ============================================================ */
+
+function generateTitle(r, intent) {
+    const wordsA = [
+        "Between",
+        "Beyond",
+        "Inside",
+        "Beneath",
+        "Above",
+        "Through",
+        "Across",
+        "Within",
+        "Against",
+        "Beyond",
+        "After",
+        "Before"
+    ];
+
+    const wordsB = [
+        "Silence",
+        "Distance",
+        "Light",
+        "Nothing",
+        "Memory",
+        "Motion",
+        "Dreams",
+        "Space",
+        "Time",
+        "Colour",
+        "Rain",
+        "Darkness",
+        "Tomorrow",
+        "The Unknown"
+    ];
+
+    const a =
+        wordsA[
+            int(
+                r,
+                0,
+                wordsA.length - 1
+            )
+        ];
+
+    const b =
+        wordsB[
+            int(
+                r,
+                0,
+                wordsB.length - 1
+            )
+        ];
+
+    return `${a} ${b}`;
+}
+
+/* ============================================================
+   RENDER
+   ============================================================ */
+
+function drawBackground(palette) {
+    ctx.fillStyle =
+        rgba(
+            palette.dark,
+            1
+        );
+
     ctx.fillRect(
         0,
         0,
         WIDTH,
         HEIGHT
     );
-    background(
-        r,
-        palette,
-        circles
+}
+
+function draw() {
+    circles.sort(
+        (a, b) =>
+            a.layer -
+            b.layer
     );
-    paintHugeColourMass(
-        r,
-        composition,
-        palette,
-        circles
-    );
-    focalDream(
-        r,
-        composition,
-        palette,
-        circles
-    );
-    surroundingDreams(
-        r,
-        composition,
-        palette,
-        circles
-    );
-    if (chance(r, 0.85)) {
-        spiral(
-            r,
-            range(r, 100, WIDTH - 100),
-            range(r, 100, HEIGHT - 100),
-            range(r, 100, 400),
-            palette.colors[integer(r, 1, 4)],
-            circles,
-            6
+
+    for (const c of circles) {
+        ctx.beginPath();
+
+        ctx.arc(
+            c.x,
+            c.y,
+            c.radius,
+            0,
+            Math.PI * 2
         );
-    }
-    if (chance(r, 0.8)) {
-        for (let i = 0; i < integer(r, 2, 8); i++) {
-            tendril(
-                r,
-                range(r, 0, WIDTH),
-                range(r, 0, HEIGHT),
-                range(r, 0, TAU),
-                range(r, 150, 700),
-                palette.colors[integer(r, 1, 4)],
-                circles,
-                5
+
+        ctx.fillStyle =
+            rgba(
+                c.colour,
+                c.alpha
             );
+
+        ctx.fill();
+    }
+}
+
+/* ============================================================
+   GENERATION
+
+   Several mathematical attempts are made.
+
+   The strongest one is retained.
+
+   This does NOT compare the result to existing artwork.
+   ============================================================ */
+
+function render(seed) {
+    currentSeed = seed;
+
+    let best = null;
+
+    const attempts = 3;
+
+    for (let attempt = 0; attempt < attempts; attempt++) {
+        const attemptSeed =
+            (
+                seed +
+                attempt *
+                2654435761
+            ) >>> 0;
+
+        const r =
+            rng(attemptSeed);
+
+        const intent =
+            createIntent(r);
+
+        const composition =
+            createComposition(
+                r,
+                intent
+            );
+
+        const world =
+            createWorld(
+                r,
+                intent
+            );
+
+        const palette =
+            createPalette(
+                r,
+                intent
+            );
+
+        circles = [];
+
+        drawBackground(
+            palette
+        );
+
+        paintScene(
+            r,
+            world,
+            composition,
+            palette,
+            intent
+        );
+
+        paintAtmosphere(
+            r,
+            world,
+            palette,
+            intent,
+            composition
+        );
+
+        paintLight(
+            r,
+            world,
+            palette,
+            composition,
+            intent
+        );
+
+        const score =
+            evaluateArtwork();
+
+        if (
+            best === null ||
+            score > best.score
+        ) {
+            best = {
+                score,
+                circles: circles.slice(),
+                intent,
+                composition,
+                world,
+                palette
+            };
         }
     }
-    atmosphere(
-        r,
-        palette,
-        circles
-    );
-    stars(
-        r,
-        palette,
-        circles
-    );
-    highlightCore(
-        r,
-        composition,
-        palette,
-        circles
-    );
-    symmetryEcho(
-        r,
-        composition,
-        circles
-    );
-    negativeSpace(
-        r,
-        composition,
-        circles
-    );
-    draw(circles);
-    const artworkTitle = title(r);
-    currentArtwork = {
-        seed,
-        title: artworkTitle,
-        circles: circles.length
-    };
-    titleElement.textContent = artworkTitle;
-    seedElement.textContent = seed;
-    compositionElement.textContent = composition.name;
-    paletteElement.textContent = palette.name;
-    circlesElement.textContent =
-        circles.length.toLocaleString();
+
+    circles =
+        best.circles;
+
+    draw();
+
+    const titleRandom =
+        rng(
+            (
+                seed ^
+                0x9E3779B9
+            ) >>> 0
+        );
+
+    currentTitle =
+        generateTitle(
+            titleRandom,
+            best.intent
+        );
+
+    titleEl.textContent =
+        currentTitle;
+
+    seedEl.textContent =
+        `SEED: ${seed}`;
+
+    compositionEl.textContent =
+        `${best.circles.length.toLocaleString()} PARTICLES · ${Math.round(best.score * 100)}% STRUCTURAL COHERENCE`;
+
+    paletteEl.textContent =
+        `HARMONY ${best.palette.harmony + 1} · BASE ${Math.round(best.palette.base)}°`;
+
+    circlesEl.textContent =
+        `${circles.length.toLocaleString()} ORBS`;
 }
+
+/* ============================================================
+   CONTROLS
+   ============================================================ */
+
 function generate() {
-    render(randomSeed());
+    render(
+        randomSeed()
+    );
 }
+
 function saveArtwork() {
-    if (!currentArtwork) return;
-    const safe =
-        currentArtwork.title
-            .toLowerCase()
-            .replace(/[^a-z0-9]+/g, "-")
-            .replace(/^-|-$/g, "");
     const link =
         document.createElement("a");
+
     link.download =
-        `${safe}-${currentArtwork.seed}.png`;
+        `${currentTitle
+            .replace(
+                /[^a-z0-9]+/gi,
+                "_"
+            )}_${currentSeed}.png`;
+
     link.href =
-        canvas.toDataURL("image/png");
+        canvas.toDataURL(
+            "image/png"
+        );
+
     link.click();
 }
-document
-    .getElementById("generate")
-    .addEventListener("click", generate);
-document
-    .getElementById("save")
-    .addEventListener("click", saveArtwork);
-render(randomSeed());
+
+generateBtn.addEventListener(
+    "click",
+    generate
+);
+
+saveBtn.addEventListener(
+    "click",
+    saveArtwork
+);
+
+render(
+    randomSeed()
+);
+
