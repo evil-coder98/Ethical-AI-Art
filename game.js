@@ -1,9 +1,8 @@
-const APP_VERSION = "ILB1";
+const VERSION = "ILB1";
 
 const state = {
-    currentImage: null,
-    currentSource: null,
-    currentCoordinate: null,
+    image: null,
+    coordinate: null,
     archive: loadArchive()
 };
 
@@ -16,347 +15,315 @@ const screens = {
 };
 
 const canvas = document.getElementById("imageCanvas");
-const ctx = canvas.getContext("2d", {
-    willReadFrequently: true
-});
-
-function $(id) {
-    return document.getElementById(id);
-}
+const ctx = canvas.getContext("2d");
 
 function showScreen(name) {
-    Object.values(screens).forEach(screen => {
-        if (screen) {
-            screen.classList.remove("active");
-        }
-    });
-
-    if (screens[name]) {
-        screens[name].classList.add("active");
+    for (const screen of Object.values(screens)) {
+        screen.classList.remove("active");
     }
+
+    screens[name].classList.add("active");
 }
 
-function showToast(message) {
-    const toast = $("toast");
+function toast(message) {
+    const element = document.getElementById("toast");
 
-    toast.textContent = message;
-    toast.classList.add("visible");
+    element.textContent = message;
+    element.classList.add("visible");
 
-    clearTimeout(showToast.timer);
+    clearTimeout(toast.timer);
 
-    showToast.timer = setTimeout(() => {
-        toast.classList.remove("visible");
+    toast.timer = setTimeout(() => {
+        element.classList.remove("visible");
     }, 1800);
 }
 
-$("uploadButton").addEventListener("click", () => {
-    $("fileInput").click();
-});
 
-$("fileInput").addEventListener("change", async event => {
-    const file = event.target.files[0];
+/* ------------------------------
+   HOME
+------------------------------ */
 
-    if (!file) {
-        return;
-    }
+document
+    .getElementById("uploadButton")
+    .addEventListener("click", () => {
+        document
+            .getElementById("fileInput")
+            .click();
+    });
 
-    try {
-        const image = await loadImageFile(file);
+document
+    .getElementById("randomButton")
+    .addEventListener("click", () => {
+        randomImage();
+    });
 
-        openImage(image, "upload");
-    } catch (error) {
-        console.error(error);
-        showToast("FAILED TO LOAD IMAGE");
-    }
+document
+    .getElementById("coordinateButton")
+    .addEventListener("click", () => {
+        document.getElementById(
+            "coordinateInput"
+        ).value = "";
 
-    event.target.value = "";
-});
+        document.getElementById(
+            "coordinateError"
+        ).textContent = "";
 
-$("coordinateButton").addEventListener("click", () => {
-    $("coordinateInput").value = "";
-    $("coordinateError").textContent = "";
-    showScreen("coordinate");
-});
+        showScreen("coordinate");
+    });
 
-$("randomButton").addEventListener("click", () => {
-    openRandomImage();
-});
+document
+    .getElementById("archiveButton")
+    .addEventListener("click", () => {
+        renderArchive();
+        showScreen("archive");
+    });
 
-$("archiveButton").addEventListener("click", () => {
-    renderArchive();
-    showScreen("archive");
-});
 
-$("backButton").addEventListener("click", () => {
-    showScreen("home");
-});
+/* ------------------------------
+   FILE UPLOAD
+------------------------------ */
 
-$("coordinateBackButton").addEventListener("click", () => {
-    showScreen("home");
-});
+document
+    .getElementById("fileInput")
+    .addEventListener("change", event => {
 
-$("archiveBackButton").addEventListener("click", () => {
-    showScreen("home");
-});
+        const file = event.target.files[0];
 
-$("similarBackButton").addEventListener("click", () => {
+        if (!file) {
+            return;
+        }
+
+        loadUploadedImage(file);
+
+        event.target.value = "";
+    });
+
+function loadUploadedImage(file) {
+
+    const reader = new FileReader();
+
+    reader.onload = () => {
+
+        const image = new Image();
+
+        image.onload = () => {
+
+            const width =
+                image.naturalWidth;
+
+            const height =
+                image.naturalHeight;
+
+            const temp =
+                document.createElement("canvas");
+
+            temp.width = width;
+            temp.height = height;
+
+            const tempContext =
+                temp.getContext("2d", {
+                    willReadFrequently: true
+                });
+
+            tempContext.drawImage(
+                image,
+                0,
+                0
+            );
+
+            const data =
+                tempContext.getImageData(
+                    0,
+                    0,
+                    width,
+                    height
+                );
+
+            const pixels =
+                new Uint8Array(
+                    width *
+                    height *
+                    3
+                );
+
+            let p = 0;
+
+            for (
+                let i = 0;
+                i < data.data.length;
+                i += 4
+            ) {
+                pixels[p++] =
+                    data.data[i];
+
+                pixels[p++] =
+                    data.data[i + 1];
+
+                pixels[p++] =
+                    data.data[i + 2];
+            }
+
+            openImage({
+                width,
+                height,
+                pixels
+            });
+
+        };
+
+        image.onerror = () => {
+            toast("IMAGE COULD NOT BE READ");
+        };
+
+        image.src = reader.result;
+    };
+
+    reader.onerror = () => {
+        toast("FILE COULD NOT BE READ");
+    };
+
+    reader.readAsDataURL(file);
+}
+
+
+/* ------------------------------
+   OPEN IMAGE
+------------------------------ */
+
+function openImage(image) {
+
+    state.image = image;
+
+    state.coordinate =
+        encodeImage(image);
+
+    drawImage(image);
+
+    updateViewer();
+
     showScreen("viewer");
-});
+}
 
-$("randomViewerButton").addEventListener("click", () => {
-    openRandomImage();
-});
 
-$("previousButton").addEventListener("click", () => {
-    navigateImage(-1);
-});
+/* ------------------------------
+   DRAW IMAGE
+------------------------------ */
 
-$("nextButton").addEventListener("click", () => {
-    navigateImage(1);
-});
+function drawImage(image) {
 
-$("openCoordinateButton").addEventListener("click", () => {
-    const input = $("coordinateInput");
-    const error = $("coordinateError");
+    canvas.width =
+        image.width;
 
-    error.textContent = "";
+    canvas.height =
+        image.height;
 
-    try {
-        const image = decodeCoordinate(input.value.trim());
-
-        openImage(image, "coordinate");
-    } catch (e) {
-        error.textContent = e.message;
-    }
-});
-
-$("copyCoordinateButton").addEventListener("click", async () => {
-    if (!state.currentCoordinate) {
-        return;
-    }
-
-    try {
-        await navigator.clipboard.writeText(
-            state.currentCoordinate
+    const rgba =
+        new Uint8ClampedArray(
+            image.width *
+            image.height *
+            4
         );
 
-        showToast("COORDINATES COPIED");
-    } catch {
-        const textarea = $("coordinateValue");
-
-        textarea.focus();
-        textarea.select();
-
-        document.execCommand("copy");
-
-        showToast("COORDINATES COPIED");
-    }
-});
-
-$("downloadButton").addEventListener("click", () => {
-    downloadCurrentImage();
-});
-
-$("saveArchiveButton").addEventListener("click", () => {
-    saveCurrentToArchive();
-});
-
-$("similarButton").addEventListener("click", () => {
-    findSimilarImages();
-});
-
-
-function loadImageFile(file) {
-    return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-
-        reader.onload = () => {
-            const image = new Image();
-
-            image.onload = () => {
-                try {
-                    const tempCanvas = document.createElement("canvas");
-
-                    tempCanvas.width = image.naturalWidth;
-                    tempCanvas.height = image.naturalHeight;
-
-                    const tempContext = tempCanvas.getContext("2d", {
-                        willReadFrequently: true
-                    });
-
-                    tempContext.drawImage(
-                        image,
-                        0,
-                        0
-                    );
-
-                    const imageData = tempContext.getImageData(
-                        0,
-                        0,
-                        image.naturalWidth,
-                        image.naturalHeight
-                    );
-
-                    const pixels = new Uint8Array(
-                        image.naturalWidth *
-                        image.naturalHeight *
-                        3
-                    );
-
-                    for (
-                        let source = 0,
-                        destination = 0;
-                        source < imageData.data.length;
-                        source += 4
-                    ) {
-                        pixels[destination++] =
-                            imageData.data[source];
-
-                        pixels[destination++] =
-                            imageData.data[source + 1];
-
-                        pixels[destination++] =
-                            imageData.data[source + 2];
-                    }
-
-                    resolve({
-                        width: image.naturalWidth,
-                        height: image.naturalHeight,
-                        pixels
-                    });
-
-                } catch (error) {
-                    reject(error);
-                }
-            };
-
-            image.onerror = () => {
-                reject(new Error("IMAGE DECODING FAILED"));
-            };
-
-            image.src = reader.result;
-        };
-
-        reader.onerror = () => {
-            reject(new Error("FILE READING FAILED"));
-        };
-
-        reader.readAsDataURL(file);
-    });
-}
-
-
-function openImage(image, source) {
-    if (!image || !image.width || !image.height) {
-        showToast("INVALID IMAGE");
-        return;
-    }
-
-    state.currentImage = image;
-    state.currentSource = source;
-    state.currentCoordinate = encodeCoordinate(image);
-
-    renderImage(image);
-    updateInformation();
-
-    showScreen("viewer");
-}
-
-
-function renderImage(image) {
-    canvas.width = image.width;
-    canvas.height = image.height;
-
-    const data = new Uint8ClampedArray(
-        image.width *
-        image.height *
-        4
-    );
+    let p = 0;
 
     for (
-        let source = 0,
-        destination = 0;
-        source < image.pixels.length;
-        source += 3
+        let i = 0;
+        i < image.pixels.length;
+        i += 3
     ) {
-        data[destination++] =
-            image.pixels[source];
 
-        data[destination++] =
-            image.pixels[source + 1];
+        rgba[p++] =
+            image.pixels[i];
 
-        data[destination++] =
-            image.pixels[source + 2];
+        rgba[p++] =
+            image.pixels[i + 1];
 
-        data[destination++] = 255;
+        rgba[p++] =
+            image.pixels[i + 2];
+
+        rgba[p++] = 255;
     }
 
-    const imageData = new ImageData(
-        data,
-        image.width,
-        image.height
-    );
-
     ctx.putImageData(
-        imageData,
+        new ImageData(
+            rgba,
+            image.width,
+            image.height
+        ),
         0,
         0
     );
 }
 
 
-function updateInformation() {
-    if (!state.currentImage) {
-        return;
-    }
+/* ------------------------------
+   VIEWER
+------------------------------ */
 
-    const image = state.currentImage;
+function updateViewer() {
 
-    $("dimensionsValue").textContent =
+    const image =
+        state.image;
+
+    document.getElementById(
+        "dimensionsValue"
+    ).textContent =
         `${image.width} × ${image.height}`;
 
-    $("coordinateValue").value =
-        state.currentCoordinate;
+    document.getElementById(
+        "coordinateValue"
+    ).value =
+        state.coordinate;
 
-    $("locationValue").textContent =
-        createHumanLocation(image);
+    document.getElementById(
+        "locationValue"
+    ).textContent =
+        [
+            "UNIVERSE: RGB-8",
+            `WIDTH: ${image.width}`,
+            `HEIGHT: ${image.height}`,
+            `PIXELS: ${image.width * image.height}`,
+            "CHANNELS: RED / GREEN / BLUE",
+            "VALUES PER CHANNEL: 256"
+        ].join("\n");
 }
 
 
-function createHumanLocation(image) {
-    return [
-        "UNIVERSE: RGB-8",
-        `WIDTH: ${image.width}`,
-        `HEIGHT: ${image.height}`,
-        `PIXELS: ${image.width * image.height}`,
-        "CHANNELS: 3",
-        "COLOUR VALUES: 256"
-    ].join("\n");
-}
+/* ------------------------------
+   COORDINATES
+------------------------------ */
 
+function encodeImage(image) {
 
-function encodeCoordinate(image) {
     return (
-        `${APP_VERSION}:` +
-        `${image.width}x${image.height}:` +
-        bytesToBase64Url(image.pixels)
+        VERSION +
+        ":" +
+        image.width +
+        "x" +
+        image.height +
+        ":" +
+        bytesToBase64(image.pixels)
     );
 }
 
+function decodeImage(address) {
 
-function decodeCoordinate(coordinate) {
-    const match = coordinate.match(
-        /^ILB1:(\d+)x(\d+):([A-Za-z0-9_-]+)$/
-    );
+    const match =
+        address.match(
+            /^ILB1:(\d+)x(\d+):([A-Za-z0-9+/=_-]+)$/
+        );
 
     if (!match) {
         throw new Error(
-            "INVALID COORDINATE FORMAT"
+            "That is not a valid IMAGE LIBRARY address."
         );
     }
 
-    const width = Number(match[1]);
-    const height = Number(match[2]);
+    const width =
+        Number(match[1]);
+
+    const height =
+        Number(match[2]);
 
     if (
         !Number.isSafeInteger(width) ||
@@ -365,28 +332,21 @@ function decodeCoordinate(coordinate) {
         height < 1
     ) {
         throw new Error(
-            "INVALID IMAGE DIMENSIONS"
+            "The image dimensions are invalid."
         );
     }
 
-    const pixelCount = width * height;
+    const pixels =
+        base64ToBytes(match[3]);
 
-    if (!Number.isSafeInteger(pixelCount)) {
+    const expected =
+        width *
+        height *
+        3;
+
+    if (pixels.length !== expected) {
         throw new Error(
-            "IMAGE IS TOO LARGE FOR THIS BROWSER"
-        );
-    }
-
-    const pixels = base64UrlToBytes(
-        match[3]
-    );
-
-    const expectedLength =
-        pixelCount * 3;
-
-    if (pixels.length !== expectedLength) {
-        throw new Error(
-            "COORDINATE DOES NOT MATCH ITS DIMENSIONS"
+            "The address contains invalid pixel data."
         );
     }
 
@@ -397,61 +357,70 @@ function decodeCoordinate(coordinate) {
     };
 }
 
+function bytesToBase64(bytes) {
 
-function bytesToBase64Url(bytes) {
     let binary = "";
 
-    const chunkSize = 0x8000;
+    const chunk = 8192;
 
     for (
         let i = 0;
         i < bytes.length;
-        i += chunkSize
+        i += chunk
     ) {
-        const chunk = bytes.subarray(
-            i,
-            Math.min(
-                i + chunkSize,
-                bytes.length
-            )
-        );
+
+        const part =
+            bytes.subarray(
+                i,
+                Math.min(
+                    i + chunk,
+                    bytes.length
+                )
+            );
 
         binary += String.fromCharCode(
-            ...chunk
+            ...part
         );
     }
 
     return btoa(binary)
         .replace(/\+/g, "-")
         .replace(/\//g, "_")
-        .replace(/=+$/g, "");
+        .replace(/=/g, "");
 }
 
+function base64ToBytes(value) {
 
-function base64UrlToBytes(value) {
-    const normalized = value
-        .replace(/-/g, "+")
-        .replace(/_/g, "/");
+    const normalized =
+        value
+            .replace(/-/g, "+")
+            .replace(/_/g, "/");
 
     const padding =
         "=".repeat(
-            (4 - normalized.length % 4) % 4
+            (4 -
+                normalized.length % 4) %
+            4
         );
 
     let binary;
 
     try {
-        binary = atob(
-            normalized + padding
-        );
+        binary =
+            atob(
+                normalized +
+                padding
+            );
     } catch {
         throw new Error(
-            "INVALID PIXEL DATA"
+            "The address contains invalid data."
         );
     }
 
     const bytes =
-        new Uint8Array(binary.length);
+        new Uint8Array(
+            binary.length
+        );
 
     for (
         let i = 0;
@@ -466,19 +435,53 @@ function base64UrlToBytes(value) {
 }
 
 
-function openRandomImage() {
-    const width = randomDimension();
-    const height = randomDimension();
+/* ------------------------------
+   RANDOM LIBRARY LOCATION
+------------------------------ */
 
-    const pixels = new Uint8Array(
-        width *
-        height *
-        3
-    );
+function randomImage() {
+
+    const sizes = [
+        [1, 1],
+        [2, 2],
+        [3, 3],
+        [4, 4],
+        [8, 8],
+        [8, 12],
+        [12, 8],
+        [16, 16],
+        [16, 24],
+        [24, 16],
+        [32, 32],
+        [32, 48],
+        [48, 32],
+        [64, 64]
+    ];
+
+    const size =
+        sizes[
+            Math.floor(
+                Math.random() *
+                sizes.length
+            )
+        ];
+
+    const width =
+        size[0];
+
+    const height =
+        size[1];
+
+    const pixels =
+        new Uint8Array(
+            width *
+            height *
+            3
+        );
 
     if (
         window.crypto &&
-        typeof window.crypto.getRandomValues === "function"
+        window.crypto.getRandomValues
     ) {
         window.crypto.getRandomValues(
             pixels
@@ -496,73 +499,68 @@ function openRandomImage() {
         }
     }
 
-    openImage(
-        {
-            width,
-            height,
-            pixels
-        },
-        "random"
-    );
+    openImage({
+        width,
+        height,
+        pixels
+    });
 }
 
 
-function randomDimension() {
-    const dimensions = [
-        1,
-        2,
-        3,
-        4,
-        8,
-        16,
-        24,
-        32,
-        48,
-        64,
-        96,
-        128
-    ];
+/* ------------------------------
+   NEIGHBOURING IMAGE
+------------------------------ */
 
-    return dimensions[
-        Math.floor(
-            Math.random() *
-            dimensions.length
-        )
-    ];
-}
+document
+    .getElementById("previousButton")
+    .addEventListener("click", () => {
+        moveImage(-1);
+    });
 
+document
+    .getElementById("nextButton")
+    .addEventListener("click", () => {
+        moveImage(1);
+    });
 
-function navigateImage(direction) {
-    if (!state.currentImage) {
+function moveImage(direction) {
+
+    if (!state.image) {
         return;
     }
 
-    const current =
-        state.currentImage;
-
     const pixels =
         new Uint8Array(
-            current.pixels
+            state.image.pixels
         );
 
     let carry =
-        direction > 0 ? 1 : -1;
+        direction === 1
+            ? 1
+            : -1;
 
     for (
         let i = pixels.length - 1;
         i >= 0;
         i--
     ) {
+
         const value =
-            pixels[i] + carry;
+            pixels[i] +
+            carry;
 
         if (value > 255) {
+
             pixels[i] = 0;
             carry = 1;
+
         } else if (value < 0) {
+
             pixels[i] = 255;
             carry = -1;
+
         } else {
+
             pixels[i] = value;
             carry = 0;
             break;
@@ -570,167 +568,353 @@ function navigateImage(direction) {
     }
 
     if (carry !== 0) {
-        showToast(
-            direction > 0
-                ? "END OF IMAGE SPACE"
-                : "BEGINNING OF IMAGE SPACE"
+        toast(
+            direction === 1
+                ? "END OF THIS IMAGE SPACE"
+                : "BEGINNING OF THIS IMAGE SPACE"
         );
 
         return;
     }
 
-    openImage(
-        {
-            width: current.width,
-            height: current.height,
-            pixels
-        },
-        "navigation"
+    openImage({
+        width: state.image.width,
+        height: state.image.height,
+        pixels
+    });
+}
+
+
+/* ------------------------------
+   RANDOM BUTTON INSIDE VIEWER
+------------------------------ */
+
+document
+    .getElementById("randomViewerButton")
+    .addEventListener("click", () => {
+        randomImage();
+    });
+
+
+/* ------------------------------
+   GO BACK
+------------------------------ */
+
+document
+    .getElementById("backButton")
+    .addEventListener("click", () => {
+        showScreen("home");
+    });
+
+document
+    .getElementById("coordinateBackButton")
+    .addEventListener("click", () => {
+        showScreen("home");
+    });
+
+document
+    .getElementById("archiveBackButton")
+    .addEventListener("click", () => {
+        showScreen("home");
+    });
+
+document
+    .getElementById("similarBackButton")
+    .addEventListener("click", () => {
+        showScreen("viewer");
+    });
+
+
+/* ------------------------------
+   OPEN ADDRESS
+------------------------------ */
+
+document
+    .getElementById("openCoordinateButton")
+    .addEventListener("click", () => {
+
+        const input =
+            document
+                .getElementById(
+                    "coordinateInput"
+                )
+                .value
+                .trim();
+
+        const error =
+            document.getElementById(
+                "coordinateError"
+            );
+
+        error.textContent = "";
+
+        try {
+
+            const image =
+                decodeImage(input);
+
+            openImage(image);
+
+        } catch (e) {
+
+            error.textContent =
+                e.message;
+        }
+    });
+
+
+/* ------------------------------
+   COPY ADDRESS
+------------------------------ */
+
+document
+    .getElementById(
+        "copyCoordinateButton"
+    )
+    .addEventListener(
+        "click",
+        async () => {
+
+            if (!state.coordinate) {
+                return;
+            }
+
+            try {
+
+                await navigator
+                    .clipboard
+                    .writeText(
+                        state.coordinate
+                    );
+
+                toast("ADDRESS COPIED");
+
+            } catch {
+
+                const box =
+                    document.getElementById(
+                        "coordinateValue"
+                    );
+
+                box.focus();
+                box.select();
+
+                document.execCommand(
+                    "copy"
+                );
+
+                toast("ADDRESS COPIED");
+            }
+        }
     );
-}
 
 
-function saveCurrentToArchive() {
-    if (
-        !state.currentImage ||
-        !state.currentCoordinate
-    ) {
-        return;
-    }
+/* ------------------------------
+   DOWNLOAD
+------------------------------ */
 
-    const exists =
-        state.archive.some(
-            item =>
-                item.coordinate ===
-                state.currentCoordinate
-        );
+document
+    .getElementById(
+        "downloadButton"
+    )
+    .addEventListener(
+        "click",
+        () => {
 
-    if (exists) {
-        showToast(
-            "ALREADY IN ARCHIVE"
-        );
+            if (!state.image) {
+                return;
+            }
 
-        return;
-    }
+            const url =
+                canvas.toDataURL(
+                    "image/png"
+                );
 
-    const image =
-        state.currentImage;
+            const link =
+                document.createElement(
+                    "a"
+                );
 
-    const item = {
-        coordinate:
-            state.currentCoordinate,
+            link.href = url;
 
-        width:
-            image.width,
+            link.download =
+                `library-${state.image.width}x${state.image.height}.png`;
 
-        height:
-            image.height,
+            link.click();
+        }
+    );
 
-        pixels:
-            bytesToBase64Url(
-                image.pixels
-            ),
 
-        created:
-            Date.now()
-    };
+/* ------------------------------
+   ARCHIVE
+------------------------------ */
 
-    state.archive.unshift(item);
+document
+    .getElementById(
+        "saveArchiveButton"
+    )
+    .addEventListener(
+        "click",
+        () => {
 
-    try {
-        localStorage.setItem(
-            "ILB_ARCHIVE",
-            JSON.stringify(
-                state.archive
-            )
-        );
+            if (
+                !state.image ||
+                !state.coordinate
+            ) {
+                return;
+            }
 
-        showToast(
-            "IMAGE ADDED TO ARCHIVE"
-        );
+            const exists =
+                state.archive.some(
+                    item =>
+                        item.coordinate ===
+                        state.coordinate
+                );
 
-    } catch {
-        state.archive.shift();
+            if (exists) {
+                toast(
+                    "ALREADY IN YOUR ARCHIVE"
+                );
 
-        showToast(
-            "BROWSER STORAGE LIMIT REACHED"
-        );
-    }
-}
+                return;
+            }
+
+            state.archive.unshift({
+                coordinate:
+                    state.coordinate,
+
+                width:
+                    state.image.width,
+
+                height:
+                    state.image.height,
+
+                pixels:
+                    bytesToBase64(
+                        state.image.pixels
+                    )
+            });
+
+            try {
+
+                localStorage.setItem(
+                    "ILB_ARCHIVE",
+                    JSON.stringify(
+                        state.archive
+                    )
+                );
+
+                toast(
+                    "SAVED TO YOUR ARCHIVE"
+                );
+
+            } catch {
+
+                state.archive.shift();
+
+                toast(
+                    "BROWSER STORAGE IS FULL"
+                );
+            }
+        }
+    );
 
 
 function loadArchive() {
+
     try {
-        const value =
+
+        const raw =
             localStorage.getItem(
                 "ILB_ARCHIVE"
             );
 
-        if (!value) {
+        if (!raw) {
             return [];
         }
 
-        const parsed =
-            JSON.parse(value);
+        const value =
+            JSON.parse(raw);
 
-        if (!Array.isArray(parsed)) {
-            return [];
-        }
-
-        return parsed;
+        return Array.isArray(value)
+            ? value
+            : [];
 
     } catch {
+
         return [];
     }
 }
 
 
 function renderArchive() {
+
     const grid =
-        $("archiveGrid");
+        document.getElementById(
+            "archiveGrid"
+        );
 
     const empty =
-        $("emptyArchive");
+        document.getElementById(
+            "emptyArchive"
+        );
 
     grid.innerHTML = "";
 
-    if (state.archive.length === 0) {
-        empty.style.display = "block";
+    if (
+        state.archive.length === 0
+    ) {
+
+        empty.style.display =
+            "block";
+
         return;
     }
 
-    empty.style.display = "none";
+    empty.style.display =
+        "none";
 
-    state.archive.forEach(item => {
-        const element =
-            document.createElement("div");
+    for (
+        const item of state.archive
+    ) {
 
-        element.className =
+        const card =
+            document.createElement(
+                "div"
+            );
+
+        card.className =
             "archiveItem";
 
         const image =
-            document.createElement("img");
+            document.createElement(
+                "img"
+            );
 
         image.className =
             "archiveImage";
 
         image.src =
-            createDataURL(
+            makeDataURL(
                 item.width,
                 item.height,
-                base64UrlToBytes(
+                base64ToBytes(
                     item.pixels
                 )
             );
 
         const info =
-            document.createElement("div");
+            document.createElement(
+                "div"
+            );
 
         info.className =
             "archiveInfo";
 
         const dimensions =
-            document.createElement("div");
+            document.createElement(
+                "div"
+            );
 
         dimensions.className =
             "archiveDimensions";
@@ -738,82 +922,129 @@ function renderArchive() {
         dimensions.textContent =
             `${item.width} × ${item.height}`;
 
-        const coordinates =
-            document.createElement("div");
+        const address =
+            document.createElement(
+                "div"
+            );
 
-        coordinates.className =
+        address.className =
             "archiveCoordinates";
 
-        coordinates.textContent =
+        address.textContent =
             item.coordinate;
 
-        info.appendChild(dimensions);
-        info.appendChild(coordinates);
+        info.appendChild(
+            dimensions
+        );
 
-        element.appendChild(image);
-        element.appendChild(info);
+        info.appendChild(
+            address
+        );
 
-        element.addEventListener(
+        card.appendChild(
+            image
+        );
+
+        card.appendChild(
+            info
+        );
+
+        card.addEventListener(
             "click",
             () => {
-                openImage(
-                    {
-                        width: item.width,
-                        height: item.height,
-                        pixels:
-                            base64UrlToBytes(
-                                item.pixels
-                            )
-                    },
-                    "archive"
-                );
+
+                openImage({
+                    width:
+                        item.width,
+
+                    height:
+                        item.height,
+
+                    pixels:
+                        base64ToBytes(
+                            item.pixels
+                        )
+                });
             }
         );
 
-        grid.appendChild(element);
-    });
+        grid.appendChild(card);
+    }
 }
 
 
-function findSimilarImages() {
-    if (!state.currentImage) {
-        return;
-    }
+/* ------------------------------
+   SIMILARITY
+------------------------------ */
+
+document
+    .getElementById(
+        "similarButton"
+    )
+    .addEventListener(
+        "click",
+        () => {
+            findSimilar();
+        }
+    );
+
+function findSimilar() {
 
     const grid =
-        $("similarGrid");
+        document.getElementById(
+            "similarGrid"
+        );
 
     const empty =
-        $("noSimilar");
+        document.getElementById(
+            "noSimilar"
+        );
 
     grid.innerHTML = "";
 
-    const candidates =
+    if (
+        !state.image ||
+        state.archive.length === 0
+    ) {
+
+        empty.style.display =
+            "block";
+
+        showScreen("similar");
+
+        return;
+    }
+
+    const results =
         state.archive
             .filter(
                 item =>
                     item.coordinate !==
-                    state.currentCoordinate
+                    state.coordinate
             )
             .map(item => {
-                const pixels =
-                    base64UrlToBytes(
-                        item.pixels
-                    );
 
-                const score =
-                    similarityScore(
-                        state.currentImage,
-                        {
-                            width: item.width,
-                            height: item.height,
-                            pixels
-                        }
-                    );
+                const image = {
+                    width:
+                        item.width,
+
+                    height:
+                        item.height,
+
+                    pixels:
+                        base64ToBytes(
+                            item.pixels
+                        )
+                };
 
                 return {
-                    ...item,
-                    score
+                    item,
+                    image,
+                    score:
+                        compareImages(
+                            state.image,
+                            image
+                        )
                 };
             })
             .sort(
@@ -822,84 +1053,100 @@ function findSimilarImages() {
             )
             .slice(0, 30);
 
-    if (candidates.length === 0) {
-        empty.style.display = "block";
+    if (results.length === 0) {
+
+        empty.style.display =
+            "block";
+
         showScreen("similar");
+
         return;
     }
 
-    empty.style.display = "none";
+    empty.style.display =
+        "none";
 
-    candidates.forEach(item => {
-        const element =
-            document.createElement("div");
+    for (
+        const result of results
+    ) {
 
-        element.className =
-            "similarItem";
+        const card =
+            document.createElement(
+                "div"
+            );
+
+        card.className =
+            "archiveItem";
 
         const image =
-            document.createElement("img");
+            document.createElement(
+                "img"
+            );
 
         image.className =
-            "similarImage";
+            "archiveImage";
 
         image.src =
-            createDataURL(
-                item.width,
-                item.height,
-                base64UrlToBytes(
-                    item.pixels
-                )
+            makeDataURL(
+                result.image.width,
+                result.image.height,
+                result.image.pixels
             );
 
         const info =
-            document.createElement("div");
+            document.createElement(
+                "div"
+            );
 
         info.className =
-            "similarInfo";
+            "archiveInfo";
 
         const score =
-            document.createElement("div");
+            document.createElement(
+                "div"
+            );
 
         score.className =
-            "similarScore";
+            "archiveDimensions";
 
         score.textContent =
             `${(
-                item.score * 100
+                result.score * 100
             ).toFixed(1)}% SIMILAR`;
 
-        info.appendChild(score);
+        info.appendChild(
+            score
+        );
 
-        element.appendChild(image);
-        element.appendChild(info);
+        card.appendChild(
+            image
+        );
 
-        element.addEventListener(
+        card.appendChild(
+            info
+        );
+
+        card.addEventListener(
             "click",
             () => {
                 openImage(
-                    {
-                        width: item.width,
-                        height: item.height,
-                        pixels:
-                            base64UrlToBytes(
-                                item.pixels
-                            )
-                    },
-                    "similar"
+                    result.image
                 );
             }
         );
 
-        grid.appendChild(element);
-    });
+        grid.appendChild(
+            card
+        );
+    }
 
     showScreen("similar");
 }
 
 
-function similarityScore(a, b) {
-    const samples = 900;
+function compareImages(a, b) {
+
+    const samples = 400;
 
     let difference = 0;
 
@@ -908,110 +1155,85 @@ function similarityScore(a, b) {
         i < samples;
         i++
     ) {
-        const position =
-            i / (samples - 1);
 
-        const av =
-            sampleImage(
+        const t =
+            i /
+            (samples - 1);
+
+        const pa =
+            sample(
                 a,
-                position
+                t
             );
 
-        const bv =
-            sampleImage(
+        const pb =
+            sample(
                 b,
-                position
+                t
             );
 
         difference +=
             Math.abs(
-                av[0] - bv[0]
+                pa[0] - pb[0]
             ) +
             Math.abs(
-                av[1] - bv[1]
+                pa[1] - pb[1]
             ) +
             Math.abs(
-                av[2] - bv[2]
+                pa[2] - pb[2]
             );
     }
-
-    const maximum =
-        samples * 765;
 
     return Math.max(
         0,
         1 -
-        difference / maximum
+        difference /
+        (samples * 765)
     );
 }
 
 
-function sampleImage(
-    image,
-    position
-) {
-    const aspect =
-        image.width /
-        image.height;
+function sample(image, t) {
 
-    let x;
-    let y;
-
-    if (aspect >= 1) {
-        x = Math.floor(
-            position *
-            image.width
-        );
-
-        y = Math.floor(
-            ((position * 997) % 1) *
-            image.height
-        );
-    } else {
-        y = Math.floor(
-            position *
-            image.height
-        );
-
-        x = Math.floor(
-            ((position * 997) % 1) *
-            image.width
-        );
-    }
-
-    x = Math.max(
-        0,
+    const x =
         Math.min(
             image.width - 1,
-            x
-        )
-    );
+            Math.floor(
+                t * image.width
+            )
+        );
 
-    y = Math.max(
-        0,
+    const y =
         Math.min(
             image.height - 1,
-            y
-        )
-    );
+            Math.floor(
+                ((t * 997) % 1) *
+                image.height
+            )
+        );
 
-    const index =
+    const i =
         (y * image.width + x) *
         3;
 
     return [
-        image.pixels[index],
-        image.pixels[index + 1],
-        image.pixels[index + 2]
+        image.pixels[i],
+        image.pixels[i + 1],
+        image.pixels[i + 2]
     ];
 }
 
 
-function createDataURL(
+/* ------------------------------
+   DATA URL
+------------------------------ */
+
+function makeDataURL(
     width,
     height,
     pixels
 ) {
+
     const temp =
         document.createElement(
             "canvas"
@@ -1023,34 +1245,36 @@ function createDataURL(
     const context =
         temp.getContext("2d");
 
-    const data =
+    const rgba =
         new Uint8ClampedArray(
             width *
             height *
             4
         );
 
+    let p = 0;
+
     for (
-        let source = 0,
-        destination = 0;
-        source < pixels.length;
-        source += 3
+        let i = 0;
+        i < pixels.length;
+        i += 3
     ) {
-        data[destination++] =
-            pixels[source];
 
-        data[destination++] =
-            pixels[source + 1];
+        rgba[p++] =
+            pixels[i];
 
-        data[destination++] =
-            pixels[source + 2];
+        rgba[p++] =
+            pixels[i + 1];
 
-        data[destination++] = 255;
+        rgba[p++] =
+            pixels[i + 2];
+
+        rgba[p++] = 255;
     }
 
     context.putImageData(
         new ImageData(
-            data,
+            rgba,
             width,
             height
         ),
@@ -1064,32 +1288,8 @@ function createDataURL(
 }
 
 
-function downloadCurrentImage() {
-    if (!state.currentImage) {
-        return;
-    }
+/* ------------------------------
+   STARTUP
+------------------------------ */
 
-    const image =
-        state.currentImage;
-
-    const dataURL =
-        createDataURL(
-            image.width,
-            image.height,
-            image.pixels
-        );
-
-    const link =
-        document.createElement("a");
-
-    link.href = dataURL;
-
-    link.download =
-        `image-library-${image.width}x${image.height}.png`;
-
-    document.body.appendChild(link);
-
-    link.click();
-
-    link.remove();
-}
+randomImage();
